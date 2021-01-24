@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2012/06/nuspec.xsd">
+  <metadata>
+    <id>TypiQL</id>
+    <version>1.0.4-CTHULU</version>
+    <authors>TypiQL</authors>
+    <owners>TypiQL</owners>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <description>Package Description</description>
+    <dependencies>
+      <group targetFramework=".NETCoreApp3.1">
+        <dependency id="Dapper" version="2.0.78" exclude="Build,Analyzers" />
+        <dependency id="GraphQL" version="3.2.0" exclude="Build,Analyzers" />
+        <dependency id="GraphQL.Server.Authorization.AspNetCore" version="4.4.0" exclude="Build,Analyzers" />
+        <dependency id="GraphQL.Server.Core" version="4.4.0" exclude="Build,Analyzers" />
+        <dependency id="GraphQL.Server.Transports.AspNetCore" version="4.4.0" exclude="Build,Analyzers" />
+        <dependency id="GraphQL.Server.Transports.AspNetCore.SystemTextJson" version="4.4.0" exclude="Build,Analyzers" />
+        <dependency id="GraphQL.Server.Transports.Subscriptions.Abstractions" version="4.4.0" exclude="Build,Analyzers" />
+        <dependency id="GraphQL.Server.Transports.WebSockets" version="4.4.0" exclude="Build,Analyzers" />
+        <dependency id="GraphQL.Server.Ui.GraphiQL" version="4.4.0" exclude="Build,Analyzers" />
+        <dependency id="LinqKit.Core" version="1.1.21" exclude="Build,Analyzers" />
+        <dependency id="Microsoft.AspNetCore.Mvc.NewtonsoftJson" version="3.1.10" exclude="Build,Analyzers" />
+        <dependency id="Microsoft.Extensions.DependencyInjection.Abstractions" version="5.0.0" exclude="Build,Analyzers" />
+        <dependency id="Microsoft.VisualStudio.Web.CodeGeneration.Design" version="3.1.4" exclude="Build,Analyzers" />
+        <dependency id="MongoDB.Driver" version="2.11.5" exclude="Build,Analyzers" />
+        <dependency id="MongoDB.Driver.GridFS" version="2.11.5" exclude="Build,Analyzers" />
+        <dependency id="Newtonsoft.Json" version="12.0.3" exclude="Build,Analyzers" />
+        <dependency id="Serilog.AspNetCore" version="3.4.0" exclude="Build,Analyzers" />
+        <dependency id="Serilog.Extensions.Logging" version="3.0.1" exclude="Build,Analyzers" />
+        <dependency id="System.Data.SqlClient" version="4.8.2" exclude="Build,Analyzers" />
+        <dependency id="System.DirectoryServices" version="5.0.0" exclude="Build,Analyzers" />
+        <dependency id="System.Drawing.Common" version="5.0.0" exclude="Build,Analyzers" />
+      </group>
+    </dependencies>
+    <frameworkReferences>
+      <group targetFramework=".NETCoreApp3.1">
+        <frameworkReference name="Microsoft.AspNetCore.App" />
+      </group>
+    </frameworkReferences>
+  </metadata>
+  <files>
+    <file src="C:\Users\david\source\repos\TypiQL\TypiQL\bin\Debug\netcoreapp3.1\TypiQL.dll" target="lib\netcoreapp3.1\TypiQL.dll" />
+  </files>
+</package>
