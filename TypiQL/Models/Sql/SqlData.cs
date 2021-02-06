@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using System.Data.SqlClient;
+using System.Linq;
 using System.Threading.Tasks;
 using Dapper;
 
@@ -158,7 +159,13 @@ namespace DataCrush.TypiQL.Models.Sql
                         values.Add(key.Key, key.Value);
                     }
                 }
-                query = query == "" ? $"SELECT * FROM [dbo].[{model.Name}]" : query;
+                List<string> dataNames = new List<string>();
+                foreach(var column in model.Columns)
+                {
+                    if (column.DataName != null && column.DataName != "")
+                        dataNames.Add($"{column.DataName} AS '{column.DataName}'");
+                }
+                query = query == "" ? $"SELECT {string.Join(",", dataNames)} FROM {model.Name}" : query;
                 if (parameters.Count > 0)
                 {
                     query += $" WHERE {string.Join(" AND ", parameters)}";

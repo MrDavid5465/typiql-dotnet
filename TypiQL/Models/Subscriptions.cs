@@ -33,7 +33,7 @@ namespace DataCrush.TypiQL.Models
                 Type = typeof(ListGraphType<TypesType>),
                 Resolver = new FuncFieldResolver<List<Types>>(context => context.Source as List<Types>),
                 Subscriber = new EventStreamResolver<List<Types>>(SubscribeToAllTypes)
-            }).AuthorizeWith(settings.AdminRole);
+            }).AuthorizeWith(settings.TypiQLAdminRole);
             AddField(new EventStreamFieldType
             {
                 Name = "typeByName",
@@ -43,14 +43,14 @@ namespace DataCrush.TypiQL.Models
                 Type = typeof(TypesType),
                 Resolver = new FuncFieldResolver<Types>(GetTypesType),
                 Subscriber = new EventStreamResolver<Types>(SubscribeToType)
-            }).AuthorizeWith(settings.AdminRole);
+            }).AuthorizeWith(settings.TypiQLAdminRole);
             AddField(new EventStreamFieldType
             {
                 Name = "typeAdded",
                 Type = typeof(TypesType),
                 Resolver = new FuncFieldResolver<Types>(GetTypesType),
                 Subscriber = new EventStreamResolver<Types>(Subscribe)
-            }).AuthorizeWith(settings.AdminRole);
+            }).AuthorizeWith(settings.TypiQLAdminRole);
         }
         private IObservable<List<Types>> SubscribeToAllTypes(IResolveEventStreamContext context)
         {

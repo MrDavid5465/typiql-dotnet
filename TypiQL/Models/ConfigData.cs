@@ -21,7 +21,6 @@ using System.Drawing;
 using System.IO;
 using MongoDB.Driver.GridFS;
 using System.Text.RegularExpressions;
-using TypiQL.Models;
 
 namespace DataCrush.TypiQL.Models
 {
@@ -34,9 +33,9 @@ namespace DataCrush.TypiQL.Models
         public readonly IConnectionsRepo _connectionsRepo;
         public readonly Dictionary<string, ISubscriberRepo<dynamic>> _subscriptionRepos;
         public bool _live;
-        public IOptions<TypiQLSettings> _settings;
+        public TypiQLSettings _settings;
 
-        public ConfigData(IOptions<TypiQLSettings> settings, IHttpContextAccessor httpContext, TypesRepo typesRepo, ConnectionsRepo connectionsRepo, TypiQLMongoContext context)
+        public ConfigData(TypiQLSettings settings, IHttpContextAccessor httpContext, TypesRepo typesRepo, ConnectionsRepo connectionsRepo, TypiQLMongoContext context)
         {
             _httpContext = httpContext;
             _mongoContext = context; //new MongoContext(settings);
@@ -497,9 +496,6 @@ namespace DataCrush.TypiQL.Models
             _connectionsRepo.RemoveConnection(connection);
             return connection;
         }
-
-
-
         public async Task<Types> GetTypesType(ObjectId id)
         {
             return await _mongoContext.Types.Find(Builders<Types>.Filter.Eq(c => c.Id, id)).FirstOrDefaultAsync();
@@ -1101,6 +1097,12 @@ namespace DataCrush.TypiQL.Models
             );
             return await _mongoContext.Buckets.Find(filter).ToListAsync();
         }
+        public async Task<LoggingContext> AddLog(LoggingContext loggingContext)
+        {
+            loggingContext.Id = ObjectId.GenerateNewId();
+            await _mongoContext.Logs.InsertOneAsync(loggingContext);
+            return loggingContext;
+        }
         public async Task<string> GetTypeAsJson(string name)
         {
             var result = await _database.GetCollection<Dictionary<string, dynamic>>("types").Find(Builders<Dictionary<string, dynamic>>.Filter.Eq("name", name)).FirstOrDefaultAsync();
@@ -1123,13 +1125,13 @@ namespace DataCrush.TypiQL.Models
             });
             return searcher;
         }
-        public List<string> GetRoles()
+        public List<TypiQLRole> GetRoles()
         {
-            return _settings.Value.RoleNames;
+            return _settings.Roles;
         }
-        public List<string> GetMyRoles()
+        public List<TypiQLRole> GetMyRoles()
         {
-            return _settings.Value.RoleNames.FindAll(r => _httpContext.HttpContext.User.IsInRole(r));
+            return _settings.Roles.FindAll(r => _httpContext.HttpContext.User.IsInRole(r.Value));
         }
         public async Task<List<ADGroup>> GetGroups()
         {
@@ -1146,14 +1148,16 @@ namespace DataCrush.TypiQL.Models
                     if (c.SchemaClassName == "Group")
                     {
                         List<string> children = new List<string>();
-                        foreach(DirectoryEntry child in c.Children)
+                        foreach (DirectoryEntry child in c.Children)
                         {
                             children.Add(child.Name);
                         }
                         aDGroups.Add(new ADGroup(c) { SAMAccountName = c.Name, Members = children });
                     }
                 }
-            } else {
+            }
+            else
+            {
                 searcher.Filter = server.GroupFilter == null || server.GroupFilter == "" ? "(ObjectClass=group)" : server.GroupFilter;
                 foreach (SearchResult g in searcher.FindAll())
                 {

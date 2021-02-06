@@ -14,33 +14,19 @@ using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Claims;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-using TypiQL.Models;
 
 namespace DataCrush.TypiQL.Models
 {
     public class BaseSchema : Schema
     {
-        private readonly ConfigData _data;
-        private readonly IHttpContextAccessor _accessor;
-        private readonly ADData _adData;
-        private readonly MongoData _mongoData;
-        private readonly SqlData _sqlData;
-        private readonly TypiQLSettings _settings;
-        public BaseSchema(TypiQLSettings settings, IServiceProvider provider) : base(provider)
+        public BaseSchema(IServiceProvider provider, Queries queries, Mutations mutations, Subscriptions subscriptions) : base(provider) 
         {
-            _accessor = provider.GetRequiredService<IHttpContextAccessor>();
-            _data = provider.GetRequiredService<ConfigData>();
-            _adData = provider.GetRequiredService<ADData>();
-            _adData.GetTypes();
-            _mongoData = provider.GetRequiredService<MongoData>();
-            _sqlData = provider.GetRequiredService<SqlData>();
-            _settings = settings;
-
-            Query = new Queries(_settings, _data, _accessor, _mongoData, _adData, _sqlData, provider);
-            Mutation = new Mutations(_settings, _data, _accessor);
-            Subscription = new Subscriptions(_settings, _data, provider.GetRequiredService<TypiQLMongoContext>());
+            Query = queries;
+            Mutation = mutations;
+            Subscription = subscriptions;
         }
     }
     public class OrgSchema : Schema
@@ -52,6 +38,7 @@ namespace DataCrush.TypiQL.Models
         private readonly SqlData _sqlData;
         private List<Types> _types;
         private readonly TypiQLSettings _settings;
+        private readonly TypiQLMongoContext _mongoContext;
 
         private Dictionary<string, Types> _typeDict
         {
@@ -66,30 +53,97 @@ namespace DataCrush.TypiQL.Models
             }
         }
 
-        public OrgSchema(TypiQLSettings settings, IServiceProvider provider) : base(provider)
+        public OrgSchema(
+            IServiceProvider provider,
+            IHttpContextAccessor accessor,            
+            ConfigData data,
+            ADData adData,
+            MongoData mongoData,
+            SqlData sqlData,
+            TypiQLSettings settings
+            ) : base(provider)
         {
-            _accessor = provider.GetRequiredService<IHttpContextAccessor>();
-            _data = provider.GetRequiredService<ConfigData>();
-            _adData = provider.GetRequiredService<ADData>();
+            _accessor = accessor;
+            _data = data;
+            _adData = adData;
             _adData.GetTypes();
-            _mongoData = provider.GetRequiredService<MongoData>();
-            _sqlData = provider.GetRequiredService<SqlData>();
+            _mongoData = mongoData;
+            _sqlData = sqlData;
             _settings = settings;
+            _mongoContext = new TypiQLMongoContext(settings);
             
             foreach (CustomResolver cr in _settings.Resolvers)
             {
-                cr.GetFieldResolver(provider);
+                cr.GetFieldResolver();
             }
 
-            Query = new Queries(_settings, _data, _accessor, _mongoData, _adData, _sqlData, provider);
-            Mutation = new Mutations(_settings, _data, _accessor);
-            Subscription = new Subscriptions(_settings, _data, provider.GetRequiredService<TypiQLMongoContext>());
+            Query = new Queries(settings, data, accessor, mongoData, adData, sqlData, provider);
+            Mutation = new Mutations(settings, data, accessor);
+            Subscription = new Subscriptions(settings, data, _mongoContext);
 
             GenerateSchema();
         }
         public void ReloadTypeDict()
         {
             _types = _data.GetTypes().Result;
+        }
+        public dynamic Log(Query query, IResolveFieldContext context, dynamic result)
+        {
+            if (query.Log)
+            {
+                LoggingContext log = new LoggingContext
+                {
+                    DateTime = DateTime.UtcNow,
+                    Details = new Dictionary<string, dynamic>
+                        {
+                            { "user", _accessor.HttpContext.User.Identity.Name },
+                            { "operation", query.Type },
+                            { "type", context.ReturnType.Name },
+                            { context.ParentType.Name, context.FieldName },
+                            { "arguments", context.Arguments },
+                            { "result", result }
+                        }
+                };
+                if (_settings.Logger != null)
+                {
+                    _settings.Logger.Invoke(log);
+                }
+                else
+                {
+                    LoggingContext _ = _data.AddLog(log).Result;
+                }
+
+            }
+            return result;
+        }
+        public dynamic Log(Column query, IResolveFieldContext context, dynamic result)
+        {
+            if (query.Log)
+            {
+                LoggingContext log = new LoggingContext
+                {
+                    DateTime = DateTime.UtcNow,
+                    Details = new Dictionary<string, dynamic>
+                        {
+                            { "user", _accessor.HttpContext.User.Identity.Name },
+                            { "operation", query.ColumnType },
+                            { "type", context.ReturnType.Name },
+                            { context.ParentType.Name, context.FieldName },
+                            { "arguments", context.Arguments },
+                            { "result", result }
+                        }
+                };
+                if (_settings.Logger != null)
+                {
+                    _settings.Logger.Invoke(log);
+                }                    
+                else
+                {
+                    LoggingContext _ = _data.AddLog(log).Result;
+                }
+                    
+            }
+            return result;
         }
         public void GenerateSchema()
         {
@@ -110,8 +164,14 @@ namespace DataCrush.TypiQL.Models
                         field.DeprecationReason = thisColumn.Deprecated;
                         field.Resolver = new FuncFieldResolver<dynamic>(context =>
                         {
+                            if (!Allowed(type.Name, field.Name, inSecureByDefault: true))
+                            {
+                                Log(thisColumn, context, "access denied");
+                                return new UnauthorizedAccessException();
+                            }
                             if (!(context.Source is IDictionary<string, dynamic> obj))
                             {
+                                Log(thisColumn, context, "parent invalid");
                                 return null;
                             }
                             obj = new Dictionary<string, dynamic>(obj);
@@ -119,31 +179,33 @@ namespace DataCrush.TypiQL.Models
                                 && _typeDict.ContainsKey(resolvedTypeInfo.Name)
                                 && thisColumn.Arguments.Count > 0)
                             {
-                                return GetMany(_typeDict[resolvedTypeInfo.Name], BuildFilter(thisType, field.Name, obj as Dictionary<string, dynamic>));
+                                return Log(thisColumn, context, GetMany(_typeDict[resolvedTypeInfo.Name], BuildFilter(thisType, field.Name, obj as Dictionary<string, dynamic>)));
                             }
                             else if (!resolvedTypeInfo.TypeStack.Contains("array")
                                 && _typeDict.ContainsKey(resolvedTypeInfo.Name)
                                 && thisColumn.Arguments.Count > 0)
                             {
-                                return GetOne(_typeDict[resolvedTypeInfo.Name], BuildFilter(thisType, field.Name, obj as Dictionary<string, dynamic>));
+                                return Log(thisColumn, context, GetOne(_typeDict[resolvedTypeInfo.Name], BuildFilter(thisType, field.Name, obj as Dictionary<string, dynamic>)));
                             }
                             else if (!obj.ContainsKey(thisColumn.DataName))
                             {
+                                Log(thisColumn, context, $"{thisColumn.DataName} not found in parent");
                                 return null;
                             }
                             else if (thisColumn.ColumnType == "File")
                             {
+                                Log(thisColumn, context, $"file: {obj[thisColumn.DataName]}");
                                 return GetFile(thisType, obj[thisColumn.DataName]);
+                            }
+                            else if (thisColumn.ColumnType == "Json")
+                            {
+                                return Log(thisColumn, context, BsonTypeMapper.MapToDotNetValue(BsonDocument.Parse(obj[thisColumn.DataName])));
                             }
                             else
                             {
-                                return obj[thisColumn.DataName];
+                                return Log(thisColumn, context, obj[thisColumn.DataName]);
                             }
                         });
-                        if (thisColumn.AllowedGroups.Count() > 0)
-                        {
-                            field.AuthorizeWith(string.Join(",", thisColumn.AllowedGroups));
-                        }
 
                     }
                     RegisterType(type);
@@ -182,6 +244,11 @@ namespace DataCrush.TypiQL.Models
                                 ResolvedType = subscriberType.GetNamedType(),
                                 Resolver = new FuncFieldResolver<Subscriber<dynamic>>(context =>
                                 {
+                                    if (!Allowed(thisType.Name, sub.Name, "subscription", true))
+                                    {
+                                        Log(sub, context, "access denied");
+                                        throw new UnauthorizedAccessException();
+                                    }
                                     var result = context.Source;
                                     Subscriber<Dictionary<string, dynamic>> dict = result as Subscriber<Dictionary<string, dynamic>>;
                                     Subscriber<dynamic> dyn = new Subscriber<dynamic>
@@ -189,7 +256,7 @@ namespace DataCrush.TypiQL.Models
                                         OperationName = dict.OperationName,
                                         Value = dict.Value
                                     };
-                                    return dyn;
+                                    return Log(sub, context, dyn);
                                 })
                             };
                             ResolvedType resolvedTypeInfo = _data.ResolveType(subscription);
@@ -215,14 +282,7 @@ namespace DataCrush.TypiQL.Models
                                 Dictionary<string, dynamic> filter = BuildQueryFilter(thisType, sub.Arguments, subscription, context);
                                 return await _data.Subscription(thisType, filter);
                             });
-                            if (sub.AllowedGroups.Count() > 0)
-                            {
-                                Subscription.AddField(subscription).AuthorizeWith(string.Join(",", sub.AllowedGroups));
-                            }
-                            else
-                            {
-                                Subscription.AddField(subscription);
-                            }
+                            Subscription.AddField(subscription);
 
                         }
                     }
@@ -273,30 +333,28 @@ namespace DataCrush.TypiQL.Models
                 {
                     query.Resolver = new FuncFieldResolver<dynamic>(context =>
                     {
+                        if (!Allowed(query.ResolvedType.GetNamedType().Name, query.Name, "query", true))
+                        {
+                            Log(thisQuery, context, "Access Denied");
+                            throw new UnauthorizedAccessException();
+                        }
                         Dictionary<string, dynamic> filter = BuildQueryFilter(thisType, thisQuery.Arguments, query, context);
                         if (thisQuery.Type == "List")
                         {
-                            return GetMany(thisType, filter);
+                            return Log(thisQuery, context, GetMany(thisType, filter));
                         }
                         else if (thisQuery.Type == "Get")
                         {
-                            return GetOne(thisType, filter);
+                            return Log(thisQuery, context, GetOne(thisType, filter));
                         }
                         else
                         {
+                            Log(thisQuery, context, "invalid query type");
                             return null;
                         }
                     });
                 }
-                if (thisQuery.AllowedGroups.Count() > 0)
-                {
-                    Query.AddField(query).AuthorizeWith(string.Join(",", thisQuery.AllowedGroups));
-                }
-                else
-                {
-                    Query.AddField(query);
-                }
-
+                Query.AddField(query);
 
             }
             foreach (FieldType mutation in userSchema.Mutation.Fields)
@@ -328,47 +386,46 @@ namespace DataCrush.TypiQL.Models
                 {
                     mutation.Resolver = new FuncFieldResolver<dynamic>(context =>
                     {
+                        if (!Allowed(mutation.ResolvedType.GetNamedType().Name, mutation.Name, "mutation", true))
+                        {
+                            Log(thisQuery, context, "Access Denied");
+                            throw new UnauthorizedAccessException();
+                        }
                         Dictionary<string, dynamic> filter = BuildQueryFilter(thisType, thisQuery.Arguments, mutation, context);
                         Dictionary<string, dynamic> values = GetValues(thisType, thisQuery.Arguments, mutation, context, filter);
                         List<Dictionary<string, dynamic>> manyValues = GetManyValues(thisType, thisQuery.Arguments, mutation, context, filter);
                         if (thisQuery.Type == "Add")
                         {
-                            return AddOne(thisType, values);
+                            return Log(thisQuery, context, AddOne(thisType, values));
                         }
                         else if (thisQuery.Type == "Update")
                         {
-                            return UpdateOne(thisType, filter, values);
+                            return Log(thisQuery, context, UpdateOne(thisType, filter, values));
                         }
                         else if (thisQuery.Type == "Remove")
                         {
-                            return RemoveOne(thisType, filter);
+                            return Log(thisQuery, context, RemoveOne(thisType, filter));
                         }
                         else if (thisQuery.Type == "RemoveMany")
                         {
-                            return RemoveMany(thisType, filter);
+                            return Log(thisQuery, context, RemoveMany(thisType, filter));
                         }
                         else if (thisQuery.Type == "AddMany")
                         {
-                            return AddMany(thisType, manyValues);
+                            return Log(thisQuery, context, AddMany(thisType, manyValues));
                         }
                         else if (thisQuery.Type == "UpdateMany")
                         {
-                            return UpdateMany(thisType, filter, values);
+                            return Log(thisQuery, context, UpdateMany(thisType, filter, values));
                         }
                         else
                         {
+                            Log(thisQuery, context, "invalid mutation type");
                             return null;
                         }
                     });
                 }
-                if (thisQuery.AllowedGroups.Count() > 0)
-                {
-                    Mutation.AddField(mutation).AuthorizeWith(string.Join(",", thisQuery.AllowedGroups));
-                }
-                else
-                {
-                    Mutation.AddField(mutation);
-                }
+                Mutation.AddField(mutation);
             }
 
         }
@@ -403,19 +460,65 @@ namespace DataCrush.TypiQL.Models
             var userName = "";
             if (arg.StartsWith("@currentUser"))
             {
-                userName = _accessor.HttpContext.User.Identity.Name.Split("\\")[1];
+                userName = _accessor.HttpContext.User.Identity.Name;
             }
             else if (arg.StartsWith("@user") && Regex.IsMatch(arg.Split(".")[0], "([\\(\\)])"))
             {
                 userName = Regex.Match(arg.Split(".")[0], "(?<=\\()(.*?)(?=\\))").Value;
             }
-            foreach (var kv in _adData.GetADObject("User", new Dictionary<string, dynamic> { { "sAMAccountName", userName } }))
+            if (_settings.UserCRUD.GetUser != null)
             {
-                user.Add(userType.Model.Columns.Find(c => c.DataName == kv.Key).Name, kv.Value);
+                foreach (var kv in _settings.UserCRUD.GetUser.Invoke(userName))
+                {
+                    if (userType == null)
+                    {
+                        user.Add(kv.Key, kv.Value);
+                    }
+                    else
+                    {
+                        Column column = userType.Model.Columns.Find(c => c.DataName == kv.Key);
+                        string key = kv.Key;
+                        if (column != null)
+                        {
+                            key = column.Name;
+                        }
+                        user.Add(key, kv.Value);
+                    }
+                }
+            }
+            if (userType != null)
+            {
+                foreach (var kv in GetOne(_typeDict["User"], new Dictionary<string, dynamic> { { _settings.UserCRUD.UserNameProperty, userName } }))
+                {
+                    
+                    if (userType == null)
+                    {
+                        if (!user.ContainsKey(kv.Key))
+                        user.Add(kv.Key, kv.Value);
+                    }
+                    else
+                    {
+                        Column column = userType.Model.Columns.Find(c => c.DataName == kv.Key);
+                        string key = kv.Key;
+                        if (column != null)
+                        {
+                            key = column.Name;
+                        }
+                        if (!user.ContainsKey(key))
+                            user.Add(key, kv.Value);
+                    }
+                }
+            }
+            else
+            {
+                foreach (var value in _accessor.HttpContext.User.Claims.Where(c => c.Type != ClaimTypes.Role).ToList())
+                {
+                    user.Add(value.Type, value.Value);
+                }
             }
             if (arg == "@currentUser")
             {
-                return user["sAMAccountName"];
+                return userName;
             }
             else if (user.ContainsKey(arg.Split(".")[1]))
             {
@@ -423,26 +526,23 @@ namespace DataCrush.TypiQL.Models
             }
             else if (arg.Split(".")[1] == "groups")
             {
-                var groupNames = new List<string>();
-                List<dynamic> groups =
-                    _adData.GetADObjects("Group", new Dictionary<string, dynamic> { { "distinguishedName_in", user["memberOf"] } });
-                foreach (Dictionary<string, dynamic> g in groups)
-                {
-                    groupNames.Add(g["name"]);
-                }
-                return groupNames;
+                return _accessor.HttpContext.User.Claims.Where(c => c.Type == ClaimTypes.Role).ToList();                
             }
             else
             {
                 Dictionary<string, dynamic> userData = new Dictionary<string, dynamic>();
                 var userDataType = _data.GetTypesType("UserData").Result;
-                foreach (var kv in _mongoData.GetDocument("UserData", new Dictionary<string, dynamic> { { "sid", user["objectSid"] } }).Result)
+                var UserData = GetOne(_typeDict["UserData"], new Dictionary<string, dynamic> { { "sid", user["objectSid"] } });
+                if (UserData != null)
                 {
-                    userData.Add(userDataType.Model.Columns.Find(c => c.DataName == kv.Key).Name, kv.Value);
+                    foreach (var kv in UserData)
+                    {
+                        userData.Add(userDataType.Model.Columns.Find(c => c.DataName == kv.Key).Name, kv.Value);
+                    }
                 }
                 if (userData.ContainsKey(arg.Split(".")[1]))
                 {
-                    return user[arg.Split(".")[1]];
+                    return userData[arg.Split(".")[1]];
                 }
                 else
                 {
@@ -462,34 +562,84 @@ namespace DataCrush.TypiQL.Models
         }
         public List<dynamic> GetMany(Types type, Dictionary<string, dynamic> filter)
         {
-
+            List<dynamic> result = new List<dynamic>();
             switch (type.Type)
             {
-                case "mongo": { return _mongoData.GetDocuments(type.Name, filter).Result; }
-                case "sql": { return _sqlData.GetRecords(type.Name, filter).Result; }
-                case "ad": { return _adData.GetADObjects(type.Name, filter); }
-                default: return null;
+                case "mongo":
+                    {
+                        result = _mongoData.GetDocuments(type.Name, filter).Result;
+                        break;
+                    }
+                case "sql":
+                    {
+                        result = _sqlData.GetRecords(type.Name, filter).Result;
+                        break;
+                    }
+                case "ad":
+                    {
+                        result = _adData.GetADObjects(type.Name, filter);
+                        break;
+                    }
+                default:
+                    {
+                        break;
+                    };
             }
+            return result;
         }
         public Dictionary<string, dynamic> GetOne(Types type, Dictionary<string, dynamic> filter)
         {
+            Dictionary<string, dynamic> result = new Dictionary<string, dynamic>();
             switch (type.Type)
             {
-                case "mongo": { return _mongoData.GetDocument(type.Name, filter).Result; }
-                case "sql": { return _sqlData.GetRecord(type.Name, filter).Result; }
-                case "ad": { return _adData.GetADObject(type.Name, filter); }
-                default: return null;
+                case "mongo": 
+                    { 
+                        result = _mongoData.GetDocument(type.Name, filter).Result; 
+                        break; 
+                    }
+                case "sql": 
+                    { 
+                        result = _sqlData.GetRecord(type.Name, filter).Result; 
+                        break;
+                    }
+                case "ad": 
+                    { 
+                        result = _adData.GetADObject(type.Name, filter); 
+                        break; 
+                    }
+                default: 
+                    {
+                        break;
+                    };
             }
+            return result;
         }
         public Dictionary<string, dynamic> AddOne(Types type, Dictionary<string, dynamic> values)
         {
+            Dictionary<string, dynamic> result = new Dictionary<string, dynamic>();
             switch (type.Type)
             {
-                case "mongo": { return _mongoData.AddDocument(type.Name, values).Result; }
-                case "sql": { return _sqlData.AddRecord(type.Name, values).Result; }
-                case "ad": { return _adData.AddADObject(type.Name, values); }
-                default: return null;
+                case "mongo":
+                    {
+                        result = _mongoData.AddDocument(type.Name, values).Result;
+                        break;
+                    }
+                case "sql":
+                    {
+                        result = _sqlData.AddRecord(type.Name, values).Result;
+                        break;
+                    }
+                case "ad":
+                    {
+                        result = _adData.AddADObject(type.Name, values);
+                        break;
+                    }
+                default:
+                    {
+                        break;
+                    };
             }
+            return result;
         }
         public List<dynamic> AddMany(Types type, List<Dictionary<string, dynamic>> manyValues)
         {
@@ -503,13 +653,30 @@ namespace DataCrush.TypiQL.Models
         }
         public Dictionary<string, dynamic> UpdateOne(Types type, Dictionary<string, dynamic> filter, Dictionary<string, dynamic> update)
         {
+            Dictionary<string, dynamic> result = new Dictionary<string, dynamic>();
             switch (type.Type)
             {
-                case "mongo": { return _mongoData.UpdateDocument(type.Name, filter, update).Result; }
-                case "sql": { return _sqlData.UpdateRecord(type.Name, filter, update).Result; }
-                case "ad": { return _adData.UpdateADObject(type.Name, filter, update); }
-                default: return null;
+                case "mongo":
+                    {
+                        result = _mongoData.UpdateDocument(type.Name, filter, update).Result;
+                        break;
+                    }
+                case "sql":
+                    {
+                        result = _sqlData.UpdateRecord(type.Name, filter, update).Result;
+                        break;
+                    }
+                case "ad":
+                    {
+                        result = _adData.UpdateADObject(type.Name, filter, update);
+                        break;
+                    }
+                default:
+                    {
+                        break;
+                    };
             }
+            return result;
         }
         public List<dynamic> UpdateMany(Types type, Dictionary<string, dynamic> filter, Dictionary<string, dynamic> update)
         {
@@ -523,13 +690,30 @@ namespace DataCrush.TypiQL.Models
         }
         public Dictionary<string, dynamic> RemoveOne(Types type, Dictionary<string, dynamic> filter)
         {
+            Dictionary<string, dynamic> result = new Dictionary<string, dynamic>();
             switch (type.Type)
             {
-                case "mongo": { return _mongoData.RemoveDocument(type.Name, filter).Result; }
-                case "sql": { return _sqlData.RemoveRecord(type.Name, filter).Result; }
-                case "ad": { return _adData.RemoveADObject(type.Name, filter); }
-                default: return null;
+                case "mongo":
+                    {
+                        result = _mongoData.RemoveDocument(type.Name, filter).Result;
+                        break;
+                    }
+                case "sql":
+                    {
+                        result = _sqlData.RemoveRecord(type.Name, filter).Result;
+                        break;
+                    }
+                case "ad":
+                    {
+                        result = _adData.RemoveADObject(type.Name, filter);
+                        break;
+                    }
+                default:
+                    {
+                        break;
+                    };
             }
+            return result;
         }
         public List<dynamic> RemoveMany(Types type, Dictionary<string, dynamic> filter)
         {
@@ -561,6 +745,32 @@ namespace DataCrush.TypiQL.Models
             string subscriptionString = $"type Subscription {{{string.Join("\n", subscriptionSchema)}}}";
 
             return For($"{typesString}\n{queryString}\n{mutationString}\n{subscriptionString}");
+        }
+        public bool Allowed(string type, string field, string location = "field", bool inSecureByDefault = false)
+        {
+            bool allowed = inSecureByDefault;
+            Types securityType = _typeDict[type];
+            List<string> allowedGroups;
+            switch (location)
+            {
+                case "field": { allowedGroups = securityType.Model.Fields[field].AllowedGroups; break; }
+                case "query": { allowedGroups = securityType.QueriesDict[field].AllowedGroups; break; }
+                case "mutation": { allowedGroups = securityType.MutationsDict[field].AllowedGroups; break; }
+                case "subscription": { allowedGroups = securityType.SubscriptionsDict[field].AllowedGroups; break; }
+                default: { allowedGroups = securityType.Model.Fields[field].AllowedGroups; break; }
+            }
+            if (allowedGroups != null && allowedGroups.Count > 0)
+            {
+                allowed = false;
+                foreach (string group in allowedGroups)
+                {
+                    if (_accessor.HttpContext.User.IsInRole(_settings.RolesDict[group].Value))
+                    {
+                        allowed = true;
+                    }
+                }
+            }
+            return allowed;
         }
         public bool IsVariable(string value)
         {
@@ -648,7 +858,7 @@ namespace DataCrush.TypiQL.Models
             if (distinguishedNames.Count > 1)
             {
                 result = new List<string>();
-                foreach (Dictionary<string, dynamic> obj in _adData.GetADObjects("User", keys))
+                foreach (Dictionary<string, dynamic> obj in GetMany(_typeDict["Group"], keys))
                 {
                     if (obj.ContainsKey(field) && obj[field] != null)
                     {
@@ -658,7 +868,7 @@ namespace DataCrush.TypiQL.Models
             }
             else
             {
-                Dictionary<string, dynamic> obj = _adData.GetADObject("user", keys);
+                Dictionary<string, dynamic> obj = GetOne(_typeDict["Group"], keys);
                 result = obj.ContainsKey(field) && obj[field] != null ? obj[field] : "";
             }
             return result;

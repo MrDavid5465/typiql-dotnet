@@ -22,7 +22,7 @@ namespace DataCrush.TypiQL.Models.Mongo
         private readonly Dictionary<string, Types> _types;
         private ConfigData _data;
         private readonly Dictionary<string, GridFSBucket> _buckets;
-        public MongoData(IOptions<TypiQLSettings> settings, IHttpContextAccessor context, ConfigData data)
+        public MongoData(TypiQLSettings settings, IHttpContextAccessor context, ConfigData data)
         {
             _context = context;
             _data = data;
@@ -54,7 +54,7 @@ namespace DataCrush.TypiQL.Models.Mongo
                     ).GetDatabase(c.DatabaseName));
             }
             if (adConnection != null)
-                _connections.Add(adConnection.Id.ToString(), new MongoClient(settings.Value.ConnectionString).GetDatabase(settings.Value.Database));
+                _connections.Add(adConnection.Id.ToString(), new MongoClient(settings.TypiQLConnectionString).GetDatabase(settings.TypiQLDatabase));
             List<Types> types = data.GetTypes("mongo").Result;
             _types = new Dictionary<string, Types>();
             foreach (Types t in types)

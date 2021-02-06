@@ -1,4 +1,5 @@
 ﻿using DataCrush.TypiQL.Models;
+using DnsClient;
 using Microsoft.Extensions.Options;
 using MongoDB.Bson.Serialization;
 using MongoDB.Driver;
@@ -14,12 +15,12 @@ namespace DataCrush.TypiQL.Models.Mongo
         public readonly IMongoDatabase _configDataBase = null;
         public MongoClient client;
         public string adminRole;
-        public TypiQLMongoContext(IOptions<TypiQLSettings> settings)
+        public TypiQLMongoContext(TypiQLSettings settings)
         {
-            client = new MongoClient(settings.Value.ConnectionString);
+            client = new MongoClient(settings.TypiQLConnectionString);
             if (client != null)
-                _configDataBase = client.GetDatabase(settings.Value.Database);
-            adminRole = settings.Value.AdminRole;
+                _configDataBase = client.GetDatabase(settings.TypiQLDatabase);
+            adminRole = settings.TypiQLAdminRole;
         }
         public IMongoCollection<Types> Types
         {
@@ -47,6 +48,13 @@ namespace DataCrush.TypiQL.Models.Mongo
             get
             {
                 return _configDataBase.GetCollection<Bucket>("buckets");
+            }
+        }
+        public IMongoCollection<LoggingContext> Logs
+        {
+            get
+            {
+                return _configDataBase.GetCollection<LoggingContext>("logs");
             }
         }
     }

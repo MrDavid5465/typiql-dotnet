@@ -29,8 +29,8 @@ namespace DataCrush.TypiQL.Models
         private readonly ISubject<List<Connection>> _allConnectionsStream = new ReplaySubject<List<Connection>>(1);
         //public ConcurrentStack<Connection> AllConnections { get; }
         private TypiQLMongoContext _context;
-        private readonly IOptions<TypiQLSettings> _settings;
-        public ConnectionsRepo(IOptions<TypiQLSettings> settings, TypiQLMongoContext context)
+        private readonly TypiQLSettings _settings;
+        public ConnectionsRepo(TypiQLSettings settings, TypiQLMongoContext context)
         {
             //AllConnections = new ConcurrentStack<Connection>();
             _context = context;

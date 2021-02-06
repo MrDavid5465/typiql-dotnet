@@ -28,6 +28,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\TypiQL\TypiQL.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Reference Include="TypiQL">
       <HintPath>..\TypiQL\bin\Debug\netcoreapp3.1\TypiQL.dll</HintPath>
     </Reference>

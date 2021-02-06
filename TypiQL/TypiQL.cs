@@ -15,38 +15,31 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
-using TypiQL.Models;
 
 namespace DataCrush.TypiQL
 {
     public static class TypiQLStartupExtensions
     {
-        public static IServiceCollection AddTypiQL(this IServiceCollection services, TypiQLSettings settings)
+        public static IServiceCollection AddTypiQL(this IServiceCollection services, List<TypiQLRole> roles)
         {
-            services.Configure<TypiQLSettings>(o =>
-            {
-                o.ConnectionString = settings.ConnectionString;
-                o.Database = settings.Database;
-                o.AdminRole = settings.AdminRole;
-                o.Roles = settings.Roles;
-                o.Resolvers = settings.Resolvers;
-            });
             services.AddHttpContextAccessor()
             .AddSingleton<TypiQLMongoContext>()
             .AddSingleton<BaseSchema>()
             .AddSingleton<TypesRepo>()
-            .AddSingleton<TypiQLSettings>()
             .AddSingleton<ConnectionsRepo>()
             .AddSingleton<ConfigData>()
             .AddSingleton<MongoData>()
             .AddSingleton<SqlData>()
             .AddSingleton<ADData>()
+            .AddSingleton<Queries>()
+            .AddSingleton<Mutations>()
+            .AddSingleton<Subscriptions>()
             .AddGraphQL(_ =>
             {
                 _.EnableMetrics = false;
             })
             .AddGraphQLAuthorization(options => {
-                foreach (TypiQLRole role in settings.Roles)
+                foreach (TypiQLRole role in roles)
                 {
                     options.AddPolicy(role.Name, role.Builder);
                 }
@@ -55,14 +48,13 @@ namespace DataCrush.TypiQL
             .AddWebSockets()
             .AddDataLoader()
             .AddGraphTypes(typeof(BaseSchema));
-            var sp = services.BuildServiceProvider();
             try
             {
-                services.AddSingleton<ISchema>(new OrgSchema(settings, sp));
+                services.AddSingleton<ISchema, OrgSchema>();
             }
-            catch (Exception e)
+            catch (Exception)
             {
-                services.AddSingleton<ISchema>(new BaseSchema(settings, sp));
+                services.AddSingleton<ISchema, BaseSchema>();
             }
             return services;
         }
@@ -71,7 +63,7 @@ namespace DataCrush.TypiQL
             app.UseWebSockets();
             app.UseGraphQLWebSockets<ISchema>("/graphql");
             app.UseGraphQL<ISchema, TypiQLMiddleware<ISchema>>("/graphql");
-            app.UseGraphiQLServer(new GraphiQLOptions());
+            app.UseGraphiQLServer(new GraphiQLOptions { GraphQLEndPoint = "/typiql/graphql"});
             return app;
         }
         
