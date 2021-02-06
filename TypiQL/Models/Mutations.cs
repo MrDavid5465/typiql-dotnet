@@ -2,6 +2,7 @@
 using GraphQL.Server.Authorization.AspNetCore;
 using GraphQL.Types;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Options;
 using MongoDB.Bson;
 using System.Collections.Generic;
 using System.Linq;
@@ -35,7 +36,7 @@ namespace DataCrush.TypiQL.Models
                     }
                     return data.AddConnection(connection);
                 }
-            ).AuthorizeWith(settings.AdminRole);
+            ).AuthorizeWith(settings.TypiQLAdminRole);
             Field<TypesType>(
                 "addType",
                 arguments: new QueryArguments(
@@ -45,7 +46,7 @@ namespace DataCrush.TypiQL.Models
                 {
                     return data.AddType(context.GetArgument<dynamic>("values"));
                 }
-            ).AuthorizeWith(settings.AdminRole);
+            ).AuthorizeWith(settings.TypiQLAdminRole);
             Field<ConnectionType>(
                 "updateConnection",
                 arguments: new QueryArguments(
@@ -65,7 +66,7 @@ namespace DataCrush.TypiQL.Models
                     }
                     return data.UpdateConnection(new ObjectId(context.GetArgument<string>("id")), context.GetArgument<dynamic>("update"));
                 }
-            ).AuthorizeWith(settings.AdminRole);
+            ).AuthorizeWith(settings.TypiQLAdminRole);
             Field<TypesType>(
                 "updateType",
                 arguments: new QueryArguments(
@@ -77,7 +78,7 @@ namespace DataCrush.TypiQL.Models
                     Dictionary<string, dynamic> t = context.GetArgument<dynamic>("update");
                     return data.UpdateType(new ObjectId(context.GetArgument<string>("id")), t);
                 }
-            ).AuthorizeWith(settings.AdminRole);
+            ).AuthorizeWith(settings.TypiQLAdminRole);
             Field<ServerType>(
                 "updateServerConfig",
                 arguments: new QueryArguments(
@@ -88,7 +89,7 @@ namespace DataCrush.TypiQL.Models
                     Dictionary<string, dynamic> t = context.GetArgument<dynamic>("update");
                     return data.UpdateServer(t);
                 }
-            ).AuthorizeWith(settings.AdminRole);
+            ).AuthorizeWith(settings.TypiQLAdminRole);
             Field<ConnectionType>(
                 "removeConnection",
                 arguments: new QueryArguments(
@@ -98,7 +99,7 @@ namespace DataCrush.TypiQL.Models
                 {
                     return data.RemoveConnection(new ObjectId(context.GetArgument<string>("id")));
                 }
-            ).AuthorizeWith(settings.AdminRole);
+            ).AuthorizeWith(settings.TypiQLAdminRole);
             Field<TypesType>(
                 "removeType",
                 arguments: new QueryArguments(
@@ -108,7 +109,7 @@ namespace DataCrush.TypiQL.Models
                 {
                     return data.RemoveType(new ObjectId(context.GetArgument<string>("id")));
                 }
-            ).AuthorizeWith(settings.AdminRole);
+            ).AuthorizeWith(settings.TypiQLAdminRole);
             Field<ListGraphType<ColumnType>>(
                 "validateTypeSchema",
                 arguments: new QueryArguments(
@@ -126,7 +127,7 @@ namespace DataCrush.TypiQL.Models
                         context.GetArgument<List<string>>("mutations")
                     );
                 }
-            ).AuthorizeWith(settings.AdminRole);
+            ).AuthorizeWith(settings.TypiQLAdminRole);
             Field<BucketType>(
                 "saveBucket",
                 arguments: new QueryArguments(
@@ -143,7 +144,7 @@ namespace DataCrush.TypiQL.Models
                     b.Add("objectString", context.GetArgument<string>("object"));
                     return data.SaveBucket(context.GetArgument<string>("name"), context.GetArgument<string>("type"), data.GetUserName(), b);
                 }
-            ).AuthorizeWith(settings.AdminRole);
+            ).AuthorizeWith(settings.TypiQLAdminRole);
             Field<BucketType>(
                 "removeBucket",
                 arguments: new QueryArguments(
@@ -156,7 +157,22 @@ namespace DataCrush.TypiQL.Models
                     b.Add("type", context.GetArgument<string>("type"));
                     return data.EmptyBucket(new ObjectId(context.GetArgument<string>("id")));
                 }
-            ).AuthorizeWith(settings.AdminRole);
+            ).AuthorizeWith(settings.TypiQLAdminRole);
+            Field<BooleanGraphType>(
+                "refreshAdminRole",
+                resolve: context =>
+                {
+                    if (settings.ResolversDict.ContainsKey("refreshToken"))
+                    {
+                        var result = settings.ResolversDict["refreshToken"].Resolve(context);
+                        if (result is bool)
+                        {
+                            return result;
+                        }
+                    }
+                    return httpContext.HttpContext.User.IsInRole(settings.RolesDict[settings.TypiQLAdminRole].Value);
+                }
+            );
         }
     }
 }

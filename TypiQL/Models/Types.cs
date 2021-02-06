@@ -261,6 +261,8 @@ namespace DataCrush.TypiQL.Models
         public string Description { get; set; }
         [BsonElement("deprecated")]
         public string Deprecated { get; set; }
+        [BsonElement("log")]
+        public bool Log { get; set; }
     }
     public class ColumnType : ObjectGraphType<Column>
     {
@@ -278,6 +280,7 @@ namespace DataCrush.TypiQL.Models
             Field<ListGraphType<ColumnType>>("filterColumns", resolve: context => data.GetFilterColumns(context.Source.ColumnGraphType.Trim(new char[] { '[', ']', '!' }), null));
             Field<ListGraphType<StringGraphType>>("allowedGroups", resolve: context => context.Source.AllowedGroups);
             Field<StringGraphType>("connectionType", resolve: context => data.GetTypesType(context.Source.ColumnGraphType.Trim(new char[] { '[', ']', '!' })).Result.Type);
+            Field<BooleanGraphType>("log", resolve: context => context.Source.Log);
         }
     }
     public class ColumnInputType : InputObjectGraphType<Column>
@@ -293,6 +296,7 @@ namespace DataCrush.TypiQL.Models
             Field<StringGraphType>("description");
             Field<StringGraphType>("deprecated");
             Field<ListGraphType<StringGraphType>>("allowedGroups");
+            Field<BooleanGraphType>("log");
         }
     }
     public class Query
@@ -319,6 +323,8 @@ namespace DataCrush.TypiQL.Models
         public string Description { get; set; }
         [BsonElement("deprecated")]
         public string Deprecated { get; set; }
+        [BsonElement("log")]
+        public bool Log { get; set; }
     }
     public class QueryDefinitionType : ObjectGraphType<Query>
     {
@@ -332,6 +338,7 @@ namespace DataCrush.TypiQL.Models
             Field<ListGraphType<StringGraphType>>("allowedGroups", resolve: context => context.Source.AllowedGroups);
             Field<StringGraphType>("description", resolve: context => context.Source.Description);
             Field<StringGraphType>("deprecated", resolve: context => context.Source.Deprecated);
+            Field<BooleanGraphType>("log", resolve: context => context.Source.Log);
         }
     }
     public class QueryDefinitionInputType : InputObjectGraphType<Query>
@@ -346,6 +353,7 @@ namespace DataCrush.TypiQL.Models
             Field<ListGraphType<StringGraphType>>("allowedGroups");
             Field<StringGraphType>("description");
             Field<StringGraphType>("deprecated");
+            Field<BooleanGraphType>("log");
         }
     }
     public class Argument

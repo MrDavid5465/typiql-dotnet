@@ -17,15 +17,15 @@ using MongoDB.Driver;
 
 namespace TypiQLDebug.Services
 {
-    //public interface IUserService
-    //{
-    //    Task<User> Register(User user);
-    //    Task<User> UpdatePassword(string username, string oldPassword, string newPassword);
-    //    Task<User> Authenticate(string username, string password);
-    //    Task<User> Refresh(string token, string refreshToken);
-    //}
+    public interface IUserService
+    {
+        Task<User> Register(User user);
+        Task<User> UpdatePassword(string username, string oldPassword, string newPassword);
+        Task<User> Authenticate(string username, string password);
+        Task<User> Refresh(string token, string refreshToken);
+    }
 
-    public class UserService
+    public class UserService : IUserService
     {
 
         private readonly Settings _appSettings;
@@ -33,19 +33,26 @@ namespace TypiQLDebug.Services
         private readonly JwtSecurityTokenHandler _tokenHandler;
 
 
-        public UserService(IOptions<Settings> appSettings, MongoContext mongoContext)
+        public UserService(IOptions<Settings> appSettings)
         {
             _appSettings = appSettings.Value;
-            _mongoContext = mongoContext;
+            _mongoContext = new MongoContext(_appSettings.ConnectionString, _appSettings.Database);
             _tokenHandler = new JwtSecurityTokenHandler();
         }
-        private List<Claim> BuildClaims(User user)
+        private async Task<List<Claim>> BuildClaims(User user)
         {
             List<Claim> claims = new List<Claim>();
             claims.Add(new Claim(ClaimTypes.Name, user.userName.ToString()));
             if (user.admin)
             {
                 claims.Add(new Claim(ClaimTypes.Role, "Admin"));
+            }
+            UserADMock uadm = await _mongoContext.UsersADMock.Find(Builders<UserADMock>.Filter.Eq(s => s.sAMAccountName, user.userName)).FirstOrDefaultAsync();
+            List<GroupADMock> groups = await _mongoContext.GroupsADMock.Find(_ => true).ToListAsync();
+            foreach(GroupADMock group in groups)
+            {
+                if (uadm.memberOf.Contains(group.distinguishedName))
+                    claims.Add(new Claim(ClaimTypes.Role, group.sAMAccountName));
             }
             return claims;
         }
@@ -120,12 +127,12 @@ namespace TypiQLDebug.Services
             }
 
             var key = Encoding.ASCII.GetBytes(_appSettings.Secret);
-            List<Claim> claims = BuildClaims(user);
+            List<Claim> claims = await BuildClaims(user);
 
             var tokenDescriptor = new SecurityTokenDescriptor
             {
-                Issuer = "feedme.com",
-                Audience = "feedme.com",
+                Issuer = "data-crush.com",
+                Audience = "data-crush.com",
                 Subject = new ClaimsIdentity(claims.ToArray()),
                 Expires = DateTime.UtcNow.AddMinutes(10),
                 SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
@@ -135,8 +142,8 @@ namespace TypiQLDebug.Services
             user.tokenExpires = tokenDescriptor.Expires.GetValueOrDefault();
             var refreshDescriptor = new SecurityTokenDescriptor
             {
-                Issuer = "feedme.com",
-                Audience = "feedme.com",
+                Issuer = "data-crush.com",
+                Audience = "data-crush.com",
                 Expires = DateTime.UtcNow.AddDays(30),
                 SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
             };
@@ -153,14 +160,14 @@ namespace TypiQLDebug.Services
             var key = Encoding.ASCII.GetBytes(_appSettings.Secret);
             ClaimsPrincipal principal = _tokenHandler.ValidateToken(token, new TokenValidationParameters
             {
-                ValidAudience = "feedme.com",
-                ValidIssuer = "feedme.com",
+                ValidAudience = "data-crush.com",
+                ValidIssuer = "data-crush.com",
                 IssuerSigningKey = new SymmetricSecurityKey(key)
             }, out SecurityToken oldAccessToken);
             _tokenHandler.ValidateToken(refreshToken, new TokenValidationParameters
             {
-                ValidAudience = "feedme.com",
-                ValidIssuer = "feedme.com",
+                ValidAudience = "data-crush.com",
+                ValidIssuer = "data-crush.com",
                 IssuerSigningKey = new SymmetricSecurityKey(key)
             }, out SecurityToken oldRefreshToken);
             var user = await _mongoContext.Users.Find(Builders<User>.Filter.And(
@@ -168,21 +175,13 @@ namespace TypiQLDebug.Services
               )
             ).FirstOrDefaultAsync();
 
-
-
-
-            if (oldAccessToken.ValidTo > DateTime.UtcNow)
+            if (oldRefreshToken.ValidTo > DateTime.UtcNow)
             {
-                user.token = token;
-                user.refreshToken = refreshToken;
-            }
-            else if (oldAccessToken.ValidTo < DateTime.UtcNow && oldRefreshToken.ValidTo > DateTime.UtcNow)
-            {
-                List<Claim> claims = BuildClaims(user);
+                List<Claim> claims = await BuildClaims(user);
                 SecurityTokenDescriptor tokenDescriptor = new SecurityTokenDescriptor
                 {
-                    Issuer = "feedme.com",
-                    Audience = "feedme.com",
+                    Issuer = "data-crush.com",
+                    Audience = "data-crush.com",
                     Subject = new ClaimsIdentity(claims.ToArray()),
                     Expires = DateTime.UtcNow.AddMinutes(10),
                     SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
@@ -192,8 +191,8 @@ namespace TypiQLDebug.Services
                 user.tokenExpires = tokenDescriptor.Expires.GetValueOrDefault();
                 SecurityTokenDescriptor refreshDescriptor = new SecurityTokenDescriptor
                 {
-                    Issuer = "feedme.com",
-                    Audience = "feedme.com",
+                    Issuer = "data-crush.com",
+                    Audience = "data-crush.com",
                     Subject = new ClaimsIdentity(claims.ToArray()),
                     Expires = DateTime.UtcNow.AddDays(30),
                     SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
@@ -202,6 +201,7 @@ namespace TypiQLDebug.Services
                 user.refreshToken = _tokenHandler.WriteToken(newRefreshToken);
 
             }
+            else return null;
             return user.WithoutPassword();
         }
     }

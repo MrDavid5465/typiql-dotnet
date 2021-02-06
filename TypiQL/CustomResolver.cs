@@ -4,22 +4,22 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace TypiQL.Models
+namespace DataCrush.TypiQL
 {
     public class CustomResolver
     {
         public string Name { get; }
-        public Func<IServiceProvider, IFieldResolver> ResolverSetup { get; }
+        public Func<IFieldResolver> ResolverSetup { get; }
         public IFieldResolver Resolver { get; set; }
-        public CustomResolver (string name, Func<IServiceProvider, IFieldResolver> resolver)
+        public CustomResolver (string name, Func<IFieldResolver> resolver)
         {
             Name = name;
             ResolverSetup = resolver;
         }
 
-        public void GetFieldResolver (IServiceProvider provider)
+        public void GetFieldResolver ()
         {
-            Resolver = ResolverSetup.Invoke(provider);
+            Resolver = ResolverSetup.Invoke();
         }
     }
 }

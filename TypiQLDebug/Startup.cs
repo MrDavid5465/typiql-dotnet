@@ -16,7 +16,6 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using DataCrush.TypiQL.Models;
-using TypiQL.Models;
 using GraphQL;
 using TypiQLDebug.Services;
 using TypiQLDebug.Models.Mongo;
@@ -38,30 +37,33 @@ namespace TypiQLDebug
 
         public IConfiguration Configuration { get; }
 
-        readonly string MyAllowSpecificOrigins = "_myAllowSpecificOrigins";
-        // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddControllers();
-            //services.AddCors(options =>
-            //{
-            //    options.AddPolicy(
-            //        name: MyAllowSpecificOrigins,
-            //        builder => builder.AllowAnyOrigin()
-            //    );
-            //});
             var appSettingsSection = Configuration.GetSection("AppSettings");
+
             Settings settings = new Settings
             {
                 ConnectionString = Configuration.GetSection("MongoConnection:ConnectionString").Value,
                 Database = Configuration.GetSection("MongoConnection:Database").Value,
-                Secret = Configuration.GetSection("Authentication:Secret").Value
+                Secret = Configuration.GetSection("Authentication:Secret").Value,
+                TypiQLConnectionString = Configuration.GetSection("TypiQLConfig:ConnectionString").Value,
+                TypiQLDatabase = Configuration.GetSection("TypiQLConfig:ConfigDatabase").Value,
+                TypiQLAdminRole = Configuration.GetSection("TypiQLConfig:AdminRole").Value,
+                UserNameProperty = Configuration.GetSection("TypiQLConfig:UserNameProperty").Value
             };
+            settings.GetRoles();
+
             services.Configure<Settings>(options =>
             {
-                options.ConnectionString = Configuration.GetSection("MongoConnection:ConnectionString").Value;
-                options.Database = Configuration.GetSection("MongoConnection:Database").Value;
-                options.Secret = Configuration.GetSection("Authentication:Secret").Value;
+                options.ConnectionString = settings.ConnectionString;
+                options.Database = settings.Database;
+                options.Secret = settings.Secret;
+                options.TypiQLConnectionString = settings.TypiQLConnectionString;
+                options.TypiQLDatabase = settings.TypiQLDatabase;
+                options.TypiQLAdminRole = settings.TypiQLAdminRole;
+                options.UserNameProperty = settings.UserNameProperty;
+                options.Roles = settings.Roles;
             });
             var key = Encoding.ASCII.GetBytes(Configuration.GetSection("Authentication:Secret").Value);
             services.AddAuthentication(x =>
@@ -80,8 +82,8 @@ namespace TypiQLDebug
                     ValidateIssuer = true,
                     ValidateAudience = true,
                     ValidateLifetime = true,
-                    ValidAudience = "feedme.com",
-                    ValidIssuer = "feedme.com",
+                    ValidAudience = "data-crush.com",
+                    ValidIssuer = "data-crush.com",
                 };
                 x.Events = new JwtBearerEvents
                 {
@@ -93,66 +95,12 @@ namespace TypiQLDebug
                 };
             });
             
-            services.AddSingleton<UserService>();
-            services.AddSingleton<MongoContext>();
+            services.AddSingleton<IUserService, UserService>();
             services.AddSingleton<TestData>();
-            services.AddTypiQL(
-                new TypiQLSettings
-                {
-                    ConnectionString = Configuration.GetSection("TypiQLConfig:ConnectionString").Value,
-                    Database = Configuration.GetSection("TypiQLConfig:ConfigDatabase").Value,
-                    AdminRole = Configuration.GetSection("TypiQLConfig:AdminRole").Value,
-                    Resolvers = new List<CustomResolver> {
-                        new CustomResolver(
-                            "register",
-                            new Func<IServiceProvider, IFieldResolver>((sp) => {
-                                TestData data = sp.GetRequiredService<TestData>();
-                                return new FuncFieldResolver<dynamic>((context) => {
-                                    return data.Register(context.GetArgument<User>("values")).Result.AsDictionary();
-                                });
-                            }) 
-                        ),
-                        new CustomResolver(
-                            "refresh", 
-                            new Func<IServiceProvider, IFieldResolver>(sp => {
-                                TestData data = sp.GetRequiredService<TestData>();
-                                return new FuncFieldResolver<dynamic>(context =>
-                                {
-                                    return data.Refresh().Result.AsDictionary();
-                                });
-                            })
-                        ),
-                        new CustomResolver(
-                            "login",
-                            new Func<IServiceProvider, IFieldResolver>(sp => {
-                                TestData data = sp.GetRequiredService<TestData>();
-                                return new FuncFieldResolver<dynamic>(context => {
-                                    var wat = data.Authenticate(
-                                        context.GetArgument<string>("username"),
-                                        context.GetArgument<string>("password")).Result.AsDictionary();
-                                    return wat;
-                                });
-                            })
-                        ),
-                        new CustomResolver(
-                            "logout",
-                            new Func<IServiceProvider, IFieldResolver>(sp => {
-                                TestData data = sp.GetRequiredService<TestData>();
-                                return new FuncFieldResolver<dynamic>(context =>
-                                {
-                                    data.Logout();
-                                    return new User().AsDictionary();
-                                });
-                            })
-                        )
-                    },
-                    Roles = new List<TypiQLRole>
-                    {
-                        new TypiQLRole("Authorized", p => p.RequireAuthenticatedUser()),
-                        new TypiQLRole("Admin", p => p.RequireRole("Admin")),
-                        new TypiQLRole("otherRole", p => p.RequireRole("otherRole"))
-                    }
-                });
+            services.AddSingleton<TypiQLSettings, TestTypiQL>();
+            services.AddHttpContextAccessor();
+
+            services.AddTypiQL(settings.Roles);
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.

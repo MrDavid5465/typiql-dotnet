@@ -1,4 +1,6 @@
 ﻿using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Options;
+using MongoDB.Bson;
 using MongoDB.Driver;
 using System;
 using System.Collections.Generic;
@@ -12,13 +14,13 @@ namespace TypiQLDebug.Models
 {
     public class TestData
     {
-        public UserService _userService;
+        public IUserService _userService;
         public MongoContext _mongoContext;
         public IHttpContextAccessor _accessor;
-        public TestData(UserService userService, MongoContext mongoContext, IHttpContextAccessor accessor)
+        public TestData(IUserService userService, IHttpContextAccessor accessor, IOptions<Settings> settings)
         {
             _userService = userService;
-            _mongoContext = mongoContext;
+            _mongoContext = new MongoContext(settings.Value.ConnectionString, settings.Value.Database);
             _accessor = accessor;
         }
 
@@ -36,12 +38,15 @@ namespace TypiQLDebug.Models
         }
         public async Task<User> Refresh()
         {
-            if (!_accessor.HttpContext.Request.Cookies.ContainsKey("refreshToken")) throw new UnauthorizedAccessException();
-            if (!_accessor.HttpContext.Request.Cookies.ContainsKey("accessToken")) throw new UnauthorizedAccessException();
+            if (!_accessor.HttpContext.Request.Cookies.ContainsKey("refreshToken")) return new User();
+            if (!_accessor.HttpContext.Request.Cookies.ContainsKey("accessToken")) return new User();
             _accessor.HttpContext.Request.Cookies.TryGetValue("refreshToken", out string refreshToken);
             _accessor.HttpContext.Request.Cookies.TryGetValue("accessToken", out string accessToken);
             User user = await _userService.Refresh(accessToken, refreshToken);
-            CreateCookies(user);
+            if (user != null)
+                CreateCookies(user);
+            else
+                return new User();
             return user;
         }
         public void Logout()
@@ -84,6 +89,7 @@ namespace TypiQLDebug.Models
         public async Task<User> UpdateAccount(string username, string password, Dictionary<string, dynamic> update)
         {
             await _mongoContext.Users.UpdateOneAsync(Builders<User>.Filter.Eq(u => u.email, username), BuildUpdate<User>(update));
+            UserADMock _ = UpdateUserADMock(username, update["adUpdate"]); 
             User user = await _userService.Authenticate(username, password);
             CreateCookies(user);
             return user;
@@ -104,6 +110,38 @@ namespace TypiQLDebug.Models
         {
             User user = await _mongoContext.Users.Find(Builders<User>.Filter.Eq(s => s.userName, username)).FirstOrDefaultAsync();
             return user.WithoutPassword();
+        }
+        public async Task<UserADMock> GetUserADMock(string username)
+        {
+            return await _mongoContext.UsersADMock.Find(Builders<UserADMock>.Filter.Eq(s => s.sAMAccountName, username)).FirstOrDefaultAsync();
+        }
+        public async Task<UserADMock> AddUserADMock(UserADMock user)
+        {
+            UserADMock existingUser = await GetUserADMock(user.sAMAccountName);
+            if (existingUser != null)
+            {
+                throw new UserExistsException();
+            }
+            user._id = ObjectId.GenerateNewId();
+            await _mongoContext.UsersADMock.InsertOneAsync(user);
+            return user;
+        }
+        public async Task<UserADMock> UpdateUserADMock(string username, Dictionary<string, dynamic> update)
+        {
+            await _mongoContext.UsersADMock.UpdateOneAsync(Builders<UserADMock>.Filter.Eq(u => u.sAMAccountName, username), BuildUpdate<UserADMock>(update));
+            return await _mongoContext.UsersADMock.Find(u => u.sAMAccountName == username).FirstOrDefaultAsync();
+        }
+        public async Task<List<UserADMock>> GetUsersADMock()
+        {
+            return await _mongoContext.UsersADMock.Find(_ => true).ToListAsync();
+        }
+        public async Task<GroupADMock> GetGroupADMock(string name)
+        {
+            return await _mongoContext.GroupsADMock.Find(Builders<GroupADMock>.Filter.Eq(s => s.sAMAccountName, name)).FirstOrDefaultAsync();
+        }
+        public async Task<List<GroupADMock>> GetGroupsADMock()
+        {
+            return await _mongoContext.GroupsADMock.Find(_ => true).ToListAsync();
         }
     }
 }

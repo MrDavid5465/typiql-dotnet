@@ -2,15 +2,14 @@
 using GraphQL.Resolvers;
 using System;
 using System.Collections.Generic;
-using TypiQL.Models;
 
-namespace DataCrush.TypiQL.Models
+namespace DataCrush.TypiQL
 {
     public class TypiQLSettings : ITypiQLSettings
     {
-        public string ConnectionString { get; set; }
-        public string Database { get; set; }
-        public string AdminRole { get; set; }
+        public string TypiQLConnectionString { get; set; }
+        public string TypiQLDatabase { get; set; }
+        public string TypiQLAdminRole { get; set; }
         public List<TypiQLRole> Roles { get; set; }
         public List<string> RoleNames
         {
@@ -24,8 +23,22 @@ namespace DataCrush.TypiQL.Models
                 return names;
             }
         }
+        public Dictionary<string, TypiQLRole> RolesDict 
+        {
+            get
+            {
+                Dictionary<string, TypiQLRole> names = new Dictionary<string, TypiQLRole>();
+                foreach (TypiQLRole role in Roles)
+                {
+                    names.Add(role.Name, role);
+                }
+                return names;
+            }
+        }
         public List<CustomResolver> Resolvers { get; set; }
-        public Dictionary<string, IFieldResolver> ResolversDict { get
+        public Dictionary<string, IFieldResolver> ResolversDict 
+        {
+            get
             {
                 Dictionary<string, IFieldResolver> resolvers = new Dictionary<string, IFieldResolver>();
                 foreach(var resolver in Resolvers)
@@ -35,6 +48,7 @@ namespace DataCrush.TypiQL.Models
                 return resolvers;
             } 
         }
-
+        public UserCRUD UserCRUD { get; set; }
+        public Func<LoggingContext, dynamic> Logger { get; set; }
     }
 }
