@@ -21,6 +21,8 @@ using System.Drawing;
 using System.IO;
 using MongoDB.Driver.GridFS;
 using System.Text.RegularExpressions;
+using LinqKit;
+using GraphQL.DataLoader;
 
 namespace DataCrush.TypiQL.Models
 {
@@ -34,17 +36,31 @@ namespace DataCrush.TypiQL.Models
         public readonly Dictionary<string, ISubscriberRepo<dynamic>> _subscriptionRepos;
         public bool _live;
         public TypiQLSettings _settings;
+        private List<Types> _types;
+        public Dictionary<string, Types> typeDict
+        {
+            get
+            {
+                Dictionary<string, Types> types = new Dictionary<string, Types>();
+                foreach (Types c in _types)
+                {
+                    types.Add(c.Name, c);
+                }
+                return types;
+            }
+        }
 
-        public ConfigData(TypiQLSettings settings, IHttpContextAccessor httpContext, TypesRepo typesRepo, ConnectionsRepo connectionsRepo, TypiQLMongoContext context)
+        public ConfigData(TypiQLSettings settings, IServiceProvider provider, IHttpContextAccessor httpContext, TypesRepo typesRepo, ConnectionsRepo connectionsRepo, TypiQLMongoContext context)
         {
             _httpContext = httpContext;
-            _mongoContext = context; //new MongoContext(settings);
-            _database = context._configDataBase; //new MongoClient(settings.Value.ConnectionString).GetDatabase(settings.Value.Database);
+            _mongoContext = context;
+            _database = context._configDataBase; 
             _typesRepo = typesRepo;
             _connectionsRepo = connectionsRepo;
             _subscriptionRepos = new Dictionary<string, ISubscriberRepo<dynamic>>();
             _settings = settings;
-            foreach(Types t in GetTypes().Result)
+            _types = GetTypes().Result;
+            foreach(Types t in _types)
             {
                 _subscriptionRepos.Add(t.Name, new SubscriberRepo<dynamic>());
             }
@@ -113,6 +129,10 @@ namespace DataCrush.TypiQL.Models
         public async Task<List<Connection>> GetConnections(string type)
         {
             return await _mongoContext.Connections.Find(Builders<Connection>.Filter.Eq(c => c.Type, type)).ToListAsync();
+        }
+        public async Task<List<Connection>> GetConnectionsByIds(List<ObjectId> ids)
+        {
+            return await _mongoContext.Connections.Find(Builders<Connection>.Filter.In(c => c.Id, ids)).ToListAsync();
         }
 
         public async Task<Connection> GetConnection(ObjectId id)
@@ -733,55 +753,65 @@ namespace DataCrush.TypiQL.Models
             //}
             return server;
         }
-        public async Task<List<Column>> ValidateTypeSchema(string name, string schema, List<string> queries, List<string> mutations)
+        public async Task<string> GetSchemaString(string name = null, string schema = null, List<string> queries = null, List<string> mutations = null, string remove = null)
         {
-            try
-            {
-                ISchema s = await BuildSchema(name, schema, queries, mutations);
-                var schemaTypes = s.AllTypes;
-                ObjectGraphType type = s.FindType(name) as ObjectGraphType;
-                InputObjectGraphType inputType = s.FindType($"{name}Input") as InputObjectGraphType;
-                List<Column> columns = new List<Column>();
-                foreach (FieldType f in type.Fields)
-                {
-                    var resolvedType = ResolveType(f);
-                    columns.Add(new Column
-                    {
-                        Name = f.Name,
-                        ColumnGraphType = resolvedType.ResolvedName,
-                        Arguments = new List<Argument> { new Argument() },
-                        AllowedGroups = new List<string>()
-                    });
-                }
-                if (inputType != null)
-                {
-                    foreach (FieldType f in inputType.Fields)
-                    {
-                        var resolvedType = ResolveType(f);
-                        if (columns.FindIndex(c => c.Name == f.Name) == -1)
-                        {
-                            columns.Add(new Column
-                            {
-                                Name = f.Name,
-                                ColumnGraphType = resolvedType.ResolvedName,
-                                Arguments = new List<Argument> { new Argument() },
-                                AllowedGroups = new List<string>()
-                            });
-                        }
+            //Log.Information("ConfigData.GetSchemaString({name}, {schema}, {queries}, {mutations}, {remove})", name, schema, queries, mutations, remove);
+            List<Types> types = await GetTypes();
+            Dictionary<string, Types> typeDict = new Dictionary<string, Types>();
 
+            List<string> typeSchema = new List<string>();
+            List<string> queriesSchema = new List<string>();
+            List<string> mutationsSchema = new List<string>();
+            foreach (Types t in types)
+            {
+                if (name != null && name == t.Name && schema != null)
+                {
+                    typeSchema.Add(schema);
+                    if (queries != null)
+                    {
+                        queriesSchema.Add(string.Join("\n ", queries));
+                    }
+                    if (mutations != null)
+                    {
+                        mutationsSchema.Add(string.Join("\n ", mutations));
                     }
                 }
-
-                return columns;
+                else
+                {
+                    if (remove == null || remove != t.Name)
+                    {
+                        typeSchema.Add(t.Schema);
+                        queriesSchema.Add(string.Join("\n ", t.QueriesSchema));
+                        mutationsSchema.Add(string.Join("\n ", t.MutationsSchema));
+                    }
+                }
+                typeDict.Add(t.Name, t);
             }
-            catch(Exception err)
+            if (name != null && !typeDict.ContainsKey(name))
             {
-                return new List<Column> { new Column { Name = err.Message } };
+                typeSchema.Add(schema);
+                if (queries != null)
+                {
+                    queriesSchema.Add($"\n {string.Join("\n ", queries)}");
+                }
+                if (mutations != null)
+                {
+                    mutationsSchema.Add($"\n {string.Join("\n ", mutations)}");
+                }
             }
+            string typesString = string.Join("\n ", typeSchema);
+            string queryString = "type Query {\n" + string.Join("\n ", queriesSchema) + "\n}";
+            string mutationString = "type Mutation {\n" + string.Join("\n ", mutationsSchema) + "\n}";
+            return $"{typesString}\n{queryString}\n{mutationString}";
+        }
+        public async Task<ISchema> BuildSchema(string name = null, string schema = null, List<string> queries = null, List<string> mutations = null, string remove = null)
+        {
+            ISchema s = new SchemaBuilder().Build(await GetSchemaString(name, schema, queries, mutations, remove));
+            return s;
         }
         public ResolvedType ResolveType(QueryArgument a)
         {
-            return ResolveType(a.ResolvedType);;
+            return ResolveType(a.ResolvedType); ;
         }
         public ResolvedType ResolveType(string type)
         {
@@ -840,11 +870,53 @@ namespace DataCrush.TypiQL.Models
             }
             return rt;
         }
-        public async Task<ISchema> BuildSchema(string name = null, string schema = null, List<string> queries = null, List<string> mutations = null, string remove = null)
+        public async Task<List<Column>> ValidateTypeSchema(string name, string schema, List<string> queries, List<string> mutations)
         {
-            ISchema s = new SchemaBuilder().Build(await GetSchemaString(name, schema, queries, mutations, remove));
-            return s;
+            try
+            {
+                ISchema s = await BuildSchema(name, schema, queries, mutations);
+                var schemaTypes = s.AllTypes;
+                ObjectGraphType type = s.FindType(name) as ObjectGraphType;
+                InputObjectGraphType inputType = s.FindType($"{name}Input") as InputObjectGraphType;
+                List<Column> columns = new List<Column>();
+                foreach (FieldType f in type.Fields)
+                {
+                    var resolvedType = ResolveType(f);
+                    columns.Add(new Column
+                    {
+                        Name = f.Name,
+                        ColumnGraphType = resolvedType.ResolvedName,
+                        Arguments = new List<Argument> { new Argument() },
+                        AllowedGroups = new List<string>()
+                    });
+                }
+                if (inputType != null)
+                {
+                    foreach (FieldType f in inputType.Fields)
+                    {
+                        var resolvedType = ResolveType(f);
+                        if (columns.FindIndex(c => c.Name == f.Name) == -1)
+                        {
+                            columns.Add(new Column
+                            {
+                                Name = f.Name,
+                                ColumnGraphType = resolvedType.ResolvedName,
+                                Arguments = new List<Argument> { new Argument() },
+                                AllowedGroups = new List<string>()
+                            });
+                        }
+
+                    }
+                }
+
+                return columns;
+            }
+            catch(Exception err)
+            {
+                return new List<Column> { new Column { Name = err.Message } };
+            }
         }
+        
         public async Task<List<Column>> GetFilterColumns(string name, string schema)
         {
             if (name == "" || name == null)
@@ -1166,56 +1238,6 @@ namespace DataCrush.TypiQL.Models
             }
             return aDGroups.OrderBy(g => g.Name.ToString()).ToList();
         }
-        public async Task<string> GetSchemaString(string name = null, string schema = null, List<string> queries = null, List<string> mutations = null, string remove = null)
-        {
-            //Log.Information("ConfigData.GetSchemaString({name}, {schema}, {queries}, {mutations}, {remove})", name, schema, queries, mutations, remove);
-            List<Types> types = await GetTypes();
-            Dictionary<string, Types> typeDict = new Dictionary<string, Types>();
-
-            List<string> typeSchema = new List<string>();
-            List<string> queriesSchema = new List<string>();
-            List<string> mutationsSchema = new List<string>();
-            foreach (Types t in types)
-            {
-                if (name != null && name == t.Name && schema != null)
-                {
-                    typeSchema.Add(schema);
-                    if (queries != null)
-                    {
-                        queriesSchema.Add(string.Join("\n ", queries));
-                    }
-                    if (mutations != null)
-                    {
-                        mutationsSchema.Add(string.Join("\n ", mutations));
-                    }
-                }
-                else
-                {
-                    if (remove == null || remove != t.Name)
-                    {
-                        typeSchema.Add(t.Schema);
-                        queriesSchema.Add(string.Join("\n ", t.QueriesSchema));
-                        mutationsSchema.Add(string.Join("\n ", t.MutationsSchema));
-                    }
-                }
-                typeDict.Add(t.Name, t);
-            }
-            if (name != null && !typeDict.ContainsKey(name))
-            {
-                typeSchema.Add(schema);
-                if (queries != null)
-                {
-                    queriesSchema.Add($"\n {string.Join("\n ", queries)}");
-                }
-                if (mutations != null)
-                {
-                    mutationsSchema.Add($"\n {string.Join("\n ", mutations)}");
-                }
-            }
-            string typesString = string.Join("\n ", typeSchema);
-            string queryString = "type Query {\n" + string.Join("\n ", queriesSchema) + "\n}";
-            string mutationString = "type Mutation {\n" + string.Join("\n ", mutationsSchema) + "\n}";
-            return $"{typesString}\n{queryString}\n{mutationString}";
-        }
+        
     }
 }

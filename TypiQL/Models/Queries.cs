@@ -18,7 +18,7 @@ namespace DataCrush.TypiQL.Models
     public class Queries : ObjectGraphType
     {
         private readonly TypiQLSettings _settings;
-        public Queries(TypiQLSettings settings, ConfigData data, IHttpContextAccessor httpContext, MongoData mongoData, ADData aDData, SqlData sqlData, IServiceProvider provider)
+        public Queries(TypiQLSettings settings, ConfigData data, IHttpContextAccessor httpContext, IServiceProvider provider)
         {
             _settings = settings;
             Name = "Query";
@@ -42,7 +42,7 @@ namespace DataCrush.TypiQL.Models
                 {
                     try
                     {
-                        var schema = new OrgSchema(provider, httpContext, data, aDData, mongoData, sqlData, settings);
+                        var schema = new OrgSchema(provider, httpContext, data, settings);
                         return null;
                     }
                     catch (Exception e)

@@ -1,4 +1,5 @@
-﻿using GraphQL.Types;
+﻿using GraphQL.DataLoader;
+using GraphQL.Types;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 using System.Collections.Generic;
@@ -137,7 +138,7 @@ namespace DataCrush.TypiQL.Models
     }
     public class TypesType : ObjectGraphType<Types>
     {
-        public TypesType (ConfigData data)
+        public TypesType (ConfigData data, IDataLoaderContextAccessor dataLoader)
         {
             Name = "Types";
             Field<IdGraphType>("id", resolve: context => context.Source.Id);
@@ -150,6 +151,17 @@ namespace DataCrush.TypiQL.Models
             Field<ListGraphType<QueryDefinitionType>>("subscriptions", resolve: context => context.Source.Subscriptions);
             Field<ModelType>("model", resolve: context => context.Source.Model);
             Field<ConnectionType>("connection", resolve: context => data.GetConnection(new ObjectId(context.Source.Connection)));
+            Field<ConnectionType, Connection>().Name("connectionBatch").ResolveAsync(context => {
+                var loader = dataLoader.Context.GetOrAddBatchLoader<ObjectId, Connection>("GetConnectionsById", async (ids, CancellationToken) => {
+                    var result = await data.GetConnectionsByIds((List<ObjectId>)ids);
+                    Dictionary<ObjectId, Connection> res = new Dictionary<ObjectId, Connection>();
+                    foreach (var c in result) {
+                        res.Add(c.Id, c);
+                    }
+                    return res;
+                });
+                return loader.LoadAsync(new ObjectId(context.Source.Connection));
+            });
         }
     }
     public class InputType
