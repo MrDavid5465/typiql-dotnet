@@ -13,22 +13,14 @@ namespace DataCrush.TypiQL.Models.AD
 {
     public class ADData
     {
-        public Dictionary<string, Types> _types;
         public Dictionary<string, Connection> _connections;
         private readonly ConfigData _data;
-        public ADData(ConfigData data)
+        private readonly SchemaHelpers _helpers;
+        public ADData(ConfigData data, SchemaHelpers helpers)
         {
             _data = data;
-            GetTypes();
-        }
-        public void GetTypes()
-        {
-            var types = _data.GetTypes("ad").Result;
-            _types = new Dictionary<string, Types>();
-            foreach (Types t in types)
-            {
-                _types.Add(t.Name, t);
-            }
+            _helpers = helpers;
+            
             var connections = _data.GetConnections("ad").Result;
             _connections = new Dictionary<string, Connection>();
             foreach (Connection c in connections)
@@ -39,7 +31,7 @@ namespace DataCrush.TypiQL.Models.AD
 
         public string BuildFilter(string type, ref string sort, ref int limit, ref int start, Dictionary<string, dynamic> keys)
         {
-            Types t = _types[type];
+            Types t = _data.typeDict[type];
             Model model = t.Model;
             var parameters = new List<string>();
             Dictionary<string, dynamic> values = new Dictionary<string, dynamic>();
@@ -216,19 +208,19 @@ namespace DataCrush.TypiQL.Models.AD
 
         public List<Dictionary<string, dynamic>> GetADObjects(string type)
         {
-            DirectorySearcher searcher = createDirectorySearcher(_types[type]);
-            searcher.Filter = _types[type].Model.Name;
+            DirectorySearcher searcher = createDirectorySearcher(_data.typeDict[type]);
+            searcher.Filter = _data.typeDict[type].Model.Name;
             List<Dictionary<string, dynamic>> users = new List<Dictionary<string, dynamic>>();
             foreach (SearchResult s in searcher.FindAll())
             {
-                users.Add(ResolveSearchResult(s, _types[type]));
+                users.Add(ResolveSearchResult(s, _data.typeDict[type]));
             }
             return users;
         }
 
         public List<dynamic> GetADObjects(string type, Dictionary<string, dynamic> keys)
         {
-            DirectorySearcher searcher = createDirectorySearcher(_types[type]);
+            DirectorySearcher searcher = createDirectorySearcher(_data.typeDict[type]);
 
             int limit = 1000;
             int start = 0;
@@ -243,14 +235,14 @@ namespace DataCrush.TypiQL.Models.AD
             List<dynamic> users = new List<dynamic>();
             foreach (SearchResult s in searcher.FindAll())
             {
-                users.Add(ResolveSearchResult(s, _types[type]));
+                users.Add(ResolveSearchResult(s, _data.typeDict[type]));
             }
             var result = users.Skip(start).Take(limit).ToList();
             return result;
         }
         public Dictionary<string, dynamic> GetADObject(string type, Dictionary<string, dynamic> keys)
         {
-            DirectorySearcher searcher = createDirectorySearcher(_types[type]);
+            DirectorySearcher searcher = createDirectorySearcher(_data.typeDict[type]);
             int limit = 0;
             int start = 0;
             string sort = "";
@@ -259,11 +251,11 @@ namespace DataCrush.TypiQL.Models.AD
             {
                 return null;
             }
-            return ResolveSearchResult(searcher.FindOne(), _types[type]);
+            return ResolveSearchResult(searcher.FindOne(), _data.typeDict[type]);
         }
         public Dictionary<string, dynamic> UpdateADObject(string type, Dictionary<string, dynamic> keys, Dictionary<string, dynamic> update)
         {
-            Types t = _types[type];
+            Types t = _data.typeDict[type];
             DirectorySearcher searcher = createDirectorySearcher(t);
             int limit = 0;
             int start = 0;
@@ -304,11 +296,11 @@ namespace DataCrush.TypiQL.Models.AD
 
             }
             adObject.CommitChanges();
-            return _data._subscriptionRepos[t.Name].ChangeEntity(t, "Update", ResolveSearchResult(searcher.FindOne(), _types[type]));
+            return _data._subscriptionRepos[t.Name].ChangeEntity(t, "Update", ResolveSearchResult(searcher.FindOne(), _data.typeDict[type]));
         }
         public Dictionary<string, dynamic> AddADObject(string type, Dictionary<string, dynamic> values)
         {
-            Types t = _types[type];
+            Types t = _data.typeDict[type];
             if (values.Count == 0)
             {
                 return new Dictionary<string, dynamic>();
@@ -348,7 +340,7 @@ namespace DataCrush.TypiQL.Models.AD
         }
         public Dictionary<string, dynamic> RemoveADObject(string type, Dictionary<string, dynamic> keys)
         {
-            Types t = _types[type];
+            Types t = _data.typeDict[type];
             DirectorySearcher searcher = createDirectorySearcher(t);
             int limit = 0;
             int start = 0;
@@ -359,7 +351,7 @@ namespace DataCrush.TypiQL.Models.AD
                 return new Dictionary<string, dynamic>();
             }
             DirectoryEntry directoryEntry = searcher.FindOne().GetDirectoryEntry();
-            Dictionary<string, dynamic> result = ResolveSearchResult(searcher.FindOne(), _types[type]);
+            Dictionary<string, dynamic> result = ResolveSearchResult(searcher.FindOne(), _data.typeDict[type]);
             directoryEntry.DeleteTree();
             return _data._subscriptionRepos[t.Name].ChangeEntity(t, "Remove", result);
         }

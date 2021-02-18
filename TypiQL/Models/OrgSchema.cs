@@ -2,6 +2,7 @@
 using DataCrush.TypiQL.Models.Mongo;
 using DataCrush.TypiQL.Models.Sql;
 using GraphQL;
+using GraphQL.DataLoader;
 using GraphQL.Resolvers;
 using GraphQL.Server.Authorization.AspNetCore;
 using GraphQL.Types;
@@ -17,6 +18,7 @@ using System.Linq;
 using System.Security.Claims;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using TypiQL.Models;
 
 namespace DataCrush.TypiQL.Models
 {
@@ -32,13 +34,11 @@ namespace DataCrush.TypiQL.Models
     public class OrgSchema : Schema
     {
         private readonly ConfigData _data;
-        private readonly IHttpContextAccessor _accessor;
-        private readonly ADData _adData;
-        private readonly MongoData _mongoData;
-        private readonly SqlData _sqlData;
+        private readonly IHttpContextAccessor _httpContext;
         private List<Types> _types;
         private readonly TypiQLSettings _settings;
         private readonly TypiQLMongoContext _mongoContext;
+        private readonly SchemaHelpers _helpers;
 
         private Dictionary<string, Types> _typeDict
         {
@@ -57,27 +57,22 @@ namespace DataCrush.TypiQL.Models
             IServiceProvider provider,
             IHttpContextAccessor accessor,            
             ConfigData data,
-            ADData adData,
-            MongoData mongoData,
-            SqlData sqlData,
             TypiQLSettings settings
             ) : base(provider)
         {
-            _accessor = accessor;
+            _httpContext = accessor;
             _data = data;
-            _adData = adData;
-            _adData.GetTypes();
-            _mongoData = mongoData;
-            _sqlData = sqlData;
             _settings = settings;
             _mongoContext = new TypiQLMongoContext(settings);
+            _helpers = provider.GetRequiredService<SchemaHelpers>();
+            _helpers.Configure(provider.GetRequiredService<MongoData>(), provider.GetRequiredService<SqlData>(), provider.GetRequiredService<ADData>());
             
             foreach (CustomResolver cr in _settings.Resolvers)
             {
                 cr.GetFieldResolver();
             }
 
-            Query = new Queries(settings, data, accessor, mongoData, adData, sqlData, provider);
+            Query = new Queries(settings, data, accessor, provider);
             Mutation = new Mutations(settings, data, accessor);
             Subscription = new Subscriptions(settings, data, _mongoContext);
 
@@ -96,7 +91,7 @@ namespace DataCrush.TypiQL.Models
                     DateTime = DateTime.UtcNow,
                     Details = new Dictionary<string, dynamic>
                         {
-                            { "user", _accessor.HttpContext.User.Identity.Name },
+                            { "user", _httpContext.HttpContext.User.Identity.Name },
                             { "operation", query.Type },
                             { "type", context.ReturnType.Name },
                             { context.ParentType.Name, context.FieldName },
@@ -125,7 +120,7 @@ namespace DataCrush.TypiQL.Models
                     DateTime = DateTime.UtcNow,
                     Details = new Dictionary<string, dynamic>
                         {
-                            { "user", _accessor.HttpContext.User.Identity.Name },
+                            { "user", _httpContext.HttpContext.User.Identity.Name },
                             { "operation", query.ColumnType },
                             { "type", context.ReturnType.Name },
                             { context.ParentType.Name, context.FieldName },
@@ -162,7 +157,7 @@ namespace DataCrush.TypiQL.Models
                         ResolvedType resolvedTypeInfo = _data.ResolveType(field);
                         field.Description = thisColumn.Description;
                         field.DeprecationReason = thisColumn.Deprecated;
-                        field.Resolver = new FuncFieldResolver<dynamic>(context =>
+                        field.Resolver = new AsyncFieldResolver<dynamic>(async context =>
                         {
                             if (!Allowed(type.Name, field.Name, inSecureByDefault: true))
                             {
@@ -179,13 +174,28 @@ namespace DataCrush.TypiQL.Models
                                 && _typeDict.ContainsKey(resolvedTypeInfo.Name)
                                 && thisColumn.Arguments.Count > 0)
                             {
-                                return Log(thisColumn, context, GetMany(_typeDict[resolvedTypeInfo.Name], BuildFilter(thisType, field.Name, obj as Dictionary<string, dynamic>)));
+                                var loader = _helpers.BatchMany(
+                                    _typeDict[resolvedTypeInfo.Name],
+                                    $"Get{resolvedTypeInfo.Name}By{thisType.Name}{string.Join("-", thisColumn.Arguments.Select(a => a.Key).ToArray())}",
+                                    thisType,
+                                    field.Name
+                                    );
+
+                                var json = JsonConvert.SerializeObject(_helpers.BuildFilter(thisType, field.Name, obj as Dictionary<string, dynamic>));
+                                return Log(thisColumn, context, loader.LoadAsync(json));
                             }
                             else if (!resolvedTypeInfo.TypeStack.Contains("array")
                                 && _typeDict.ContainsKey(resolvedTypeInfo.Name)
                                 && thisColumn.Arguments.Count > 0)
                             {
-                                return Log(thisColumn, context, GetOne(_typeDict[resolvedTypeInfo.Name], BuildFilter(thisType, field.Name, obj as Dictionary<string, dynamic>)));
+                                var loader = _helpers.BatchOne(
+                                    _typeDict[resolvedTypeInfo.Name],
+                                    $"Get{resolvedTypeInfo.Name}By{thisType.Name}{string.Join("-", thisColumn.Arguments.Select(a => a.Key).ToArray())}",
+                                    thisType,
+                                    field.Name
+                                    );
+                                var json = JsonConvert.SerializeObject(_helpers.BuildFilter(thisType, field.Name, obj as Dictionary<string, dynamic>));
+                                return Log(thisColumn, context, loader.LoadAsync(json));
                             }
                             else if (!obj.ContainsKey(thisColumn.DataName))
                             {
@@ -195,7 +205,7 @@ namespace DataCrush.TypiQL.Models
                             else if (thisColumn.ColumnType == "File")
                             {
                                 Log(thisColumn, context, $"file: {obj[thisColumn.DataName]}");
-                                return GetFile(thisType, obj[thisColumn.DataName]);
+                                return _helpers.GetFile(thisType, obj[thisColumn.DataName]);
                             }
                             else if (thisColumn.ColumnType == "Json")
                             {
@@ -279,7 +289,7 @@ namespace DataCrush.TypiQL.Models
                             subscription.Arguments.Add(new QueryArgument<ListGraphType<StringGraphType>> { Name = "operationName_notIn", ResolvedType = new ListGraphType<StringGraphType> { ResolvedType = new StringGraphType().GetNamedType() } });
                             subscription.AsyncSubscriber = new AsyncEventStreamResolver<Subscriber<Dictionary<string, dynamic>>>(async context =>
                             {
-                                Dictionary<string, dynamic> filter = BuildQueryFilter(thisType, sub.Arguments, subscription, context);
+                                Dictionary<string, dynamic> filter = _helpers.BuildQueryFilter(thisType, sub.Arguments, subscription, context);
                                 return await _data.Subscription(thisType, filter);
                             });
                             Subscription.AddField(subscription);
@@ -338,14 +348,14 @@ namespace DataCrush.TypiQL.Models
                             Log(thisQuery, context, "Access Denied");
                             throw new UnauthorizedAccessException();
                         }
-                        Dictionary<string, dynamic> filter = BuildQueryFilter(thisType, thisQuery.Arguments, query, context);
+                        Dictionary<string, dynamic> filter = _helpers.BuildQueryFilter(thisType, thisQuery.Arguments, query, context);
                         if (thisQuery.Type == "List")
                         {
-                            return Log(thisQuery, context, GetMany(thisType, filter));
+                            return Log(thisQuery, context, _helpers.GetMany(thisType, filter));
                         }
                         else if (thisQuery.Type == "Get")
                         {
-                            return Log(thisQuery, context, GetOne(thisType, filter));
+                            return Log(thisQuery, context, _helpers.GetOne(thisType, filter));
                         }
                         else
                         {
@@ -391,32 +401,32 @@ namespace DataCrush.TypiQL.Models
                             Log(thisQuery, context, "Access Denied");
                             throw new UnauthorizedAccessException();
                         }
-                        Dictionary<string, dynamic> filter = BuildQueryFilter(thisType, thisQuery.Arguments, mutation, context);
-                        Dictionary<string, dynamic> values = GetValues(thisType, thisQuery.Arguments, mutation, context, filter);
-                        List<Dictionary<string, dynamic>> manyValues = GetManyValues(thisType, thisQuery.Arguments, mutation, context, filter);
+                        Dictionary<string, dynamic> filter = _helpers.BuildQueryFilter(thisType, thisQuery.Arguments, mutation, context);
+                        Dictionary<string, dynamic> values = _helpers.GetValues(thisType, thisQuery.Arguments, mutation, context, filter);
+                        List<Dictionary<string, dynamic>> manyValues = _helpers.GetManyValues(thisType, thisQuery.Arguments, mutation, context, filter);
                         if (thisQuery.Type == "Add")
                         {
-                            return Log(thisQuery, context, AddOne(thisType, values));
+                            return Log(thisQuery, context, _helpers.AddOne(thisType, values));
                         }
                         else if (thisQuery.Type == "Update")
                         {
-                            return Log(thisQuery, context, UpdateOne(thisType, filter, values));
+                            return Log(thisQuery, context, _helpers.UpdateOne(thisType, filter, values));
                         }
                         else if (thisQuery.Type == "Remove")
                         {
-                            return Log(thisQuery, context, RemoveOne(thisType, filter));
+                            return Log(thisQuery, context, _helpers.RemoveOne(thisType, filter));
                         }
                         else if (thisQuery.Type == "RemoveMany")
                         {
-                            return Log(thisQuery, context, RemoveMany(thisType, filter));
+                            return Log(thisQuery, context, _helpers.RemoveMany(thisType, filter));
                         }
                         else if (thisQuery.Type == "AddMany")
                         {
-                            return Log(thisQuery, context, AddMany(thisType, manyValues));
+                            return Log(thisQuery, context, _helpers.AddMany(thisType, manyValues));
                         }
                         else if (thisQuery.Type == "UpdateMany")
                         {
-                            return Log(thisQuery, context, UpdateMany(thisType, filter, values));
+                            return Log(thisQuery, context, _helpers.UpdateMany(thisType, filter, values));
                         }
                         else
                         {
@@ -429,302 +439,7 @@ namespace DataCrush.TypiQL.Models
             }
 
         }
-        public dynamic ResolveField(Types thisType, Column thisColumn, string fieldName, IDictionary<string, dynamic> obj, ResolvedType resolvedTypeInfo)
-        {
-            obj = new Dictionary<string, dynamic>(obj);
-            if (resolvedTypeInfo.TypeStack.Contains("array")
-                && _typeDict.ContainsKey(resolvedTypeInfo.Name)
-                && thisColumn.Arguments.Count > 0)
-            {
-                return GetMany(_typeDict[resolvedTypeInfo.Name], BuildFilter(thisType, fieldName, obj as Dictionary<string, dynamic>));
-            }
-            else if (!resolvedTypeInfo.TypeStack.Contains("array")
-                && _typeDict.ContainsKey(resolvedTypeInfo.Name)
-                && thisColumn.Arguments.Count > 0)
-            {
-                return GetOne(_typeDict[resolvedTypeInfo.Name], BuildFilter(thisType, fieldName, obj as Dictionary<string, dynamic>));
-            }
-            else if (!obj.ContainsKey(thisColumn.DataName))
-            {
-                return null;
-            }
-            else
-            {
-                return obj[thisColumn.DataName];
-            }
-        }
-        public dynamic ResolveUser(string arg, Dictionary<string, dynamic> arguments = null)
-        {
-            Dictionary<string, dynamic> user = new Dictionary<string, dynamic>();
-            var userType = _data.GetTypesType("User").Result;
-            var userName = "";
-            if (arg.StartsWith("@currentUser"))
-            {
-                userName = _accessor.HttpContext.User.Identity.Name;
-            }
-            else if (arg.StartsWith("@user") && Regex.IsMatch(arg.Split(".")[0], "([\\(\\)])"))
-            {
-                userName = Regex.Match(arg.Split(".")[0], "(?<=\\()(.*?)(?=\\))").Value;
-            }
-            if (_settings.UserCRUD.GetUser != null)
-            {
-                foreach (var kv in _settings.UserCRUD.GetUser.Invoke(userName))
-                {
-                    if (userType == null)
-                    {
-                        user.Add(kv.Key, kv.Value);
-                    }
-                    else
-                    {
-                        Column column = userType.Model.Columns.Find(c => c.DataName == kv.Key);
-                        string key = kv.Key;
-                        if (column != null)
-                        {
-                            key = column.Name;
-                        }
-                        user.Add(key, kv.Value);
-                    }
-                }
-            }
-            if (userType != null)
-            {
-                foreach (var kv in GetOne(_typeDict["User"], new Dictionary<string, dynamic> { { _settings.UserCRUD.UserNameProperty, userName } }))
-                {
-                    
-                    if (userType == null)
-                    {
-                        if (!user.ContainsKey(kv.Key))
-                        user.Add(kv.Key, kv.Value);
-                    }
-                    else
-                    {
-                        Column column = userType.Model.Columns.Find(c => c.DataName == kv.Key);
-                        string key = kv.Key;
-                        if (column != null)
-                        {
-                            key = column.Name;
-                        }
-                        if (!user.ContainsKey(key))
-                            user.Add(key, kv.Value);
-                    }
-                }
-            }
-            else
-            {
-                foreach (var value in _accessor.HttpContext.User.Claims.Where(c => c.Type != ClaimTypes.Role).ToList())
-                {
-                    user.Add(value.Type, value.Value);
-                }
-            }
-            if (arg == "@currentUser")
-            {
-                return userName;
-            }
-            else if (user.ContainsKey(arg.Split(".")[1]))
-            {
-                return user[arg.Split(".")[1]];
-            }
-            else if (arg.Split(".")[1] == "groups")
-            {
-                return _accessor.HttpContext.User.Claims.Where(c => c.Type == ClaimTypes.Role).ToList();                
-            }
-            else
-            {
-                Dictionary<string, dynamic> userData = new Dictionary<string, dynamic>();
-                var userDataType = _data.GetTypesType("UserData").Result;
-                var UserData = GetOne(_typeDict["UserData"], new Dictionary<string, dynamic> { { "sid", user["objectSid"] } });
-                if (UserData != null)
-                {
-                    foreach (var kv in UserData)
-                    {
-                        userData.Add(userDataType.Model.Columns.Find(c => c.DataName == kv.Key).Name, kv.Value);
-                    }
-                }
-                if (userData.ContainsKey(arg.Split(".")[1]))
-                {
-                    return userData[arg.Split(".")[1]];
-                }
-                else
-                {
-                    return null;
-                }
-            }
-        }
-        public string GetFile(Types type, string value)
-        {
-            switch (type.Type)
-            {
-                case "mongo": { return _mongoData.ReadFileAsBase64(type.Name, value).Result; }
-                case "sql": { return ""; }
-                case "ad": { return ""; }
-                default: return null;
-            }
-        }
-        public List<dynamic> GetMany(Types type, Dictionary<string, dynamic> filter)
-        {
-            List<dynamic> result = new List<dynamic>();
-            switch (type.Type)
-            {
-                case "mongo":
-                    {
-                        result = _mongoData.GetDocuments(type.Name, filter).Result;
-                        break;
-                    }
-                case "sql":
-                    {
-                        result = _sqlData.GetRecords(type.Name, filter).Result;
-                        break;
-                    }
-                case "ad":
-                    {
-                        result = _adData.GetADObjects(type.Name, filter);
-                        break;
-                    }
-                default:
-                    {
-                        break;
-                    };
-            }
-            return result;
-        }
-        public Dictionary<string, dynamic> GetOne(Types type, Dictionary<string, dynamic> filter)
-        {
-            Dictionary<string, dynamic> result = new Dictionary<string, dynamic>();
-            switch (type.Type)
-            {
-                case "mongo": 
-                    { 
-                        result = _mongoData.GetDocument(type.Name, filter).Result; 
-                        break; 
-                    }
-                case "sql": 
-                    { 
-                        result = _sqlData.GetRecord(type.Name, filter).Result; 
-                        break;
-                    }
-                case "ad": 
-                    { 
-                        result = _adData.GetADObject(type.Name, filter); 
-                        break; 
-                    }
-                default: 
-                    {
-                        break;
-                    };
-            }
-            return result;
-        }
-        public Dictionary<string, dynamic> AddOne(Types type, Dictionary<string, dynamic> values)
-        {
-            Dictionary<string, dynamic> result = new Dictionary<string, dynamic>();
-            switch (type.Type)
-            {
-                case "mongo":
-                    {
-                        result = _mongoData.AddDocument(type.Name, values).Result;
-                        break;
-                    }
-                case "sql":
-                    {
-                        result = _sqlData.AddRecord(type.Name, values).Result;
-                        break;
-                    }
-                case "ad":
-                    {
-                        result = _adData.AddADObject(type.Name, values);
-                        break;
-                    }
-                default:
-                    {
-                        break;
-                    };
-            }
-            return result;
-        }
-        public List<dynamic> AddMany(Types type, List<Dictionary<string, dynamic>> manyValues)
-        {
-            switch (type.Type)
-            {
-                case "mongo": { return _mongoData.AddDocuments(type.Name, manyValues).Result; }
-                //case "sql": { return _sqlData.AddRecords(type.Name, manyValues).Result; }
-                //case "ad": { return _adData.AddADObjects(type.Name, manyValues); }
-                default: return null;
-            }
-        }
-        public Dictionary<string, dynamic> UpdateOne(Types type, Dictionary<string, dynamic> filter, Dictionary<string, dynamic> update)
-        {
-            Dictionary<string, dynamic> result = new Dictionary<string, dynamic>();
-            switch (type.Type)
-            {
-                case "mongo":
-                    {
-                        result = _mongoData.UpdateDocument(type.Name, filter, update).Result;
-                        break;
-                    }
-                case "sql":
-                    {
-                        result = _sqlData.UpdateRecord(type.Name, filter, update).Result;
-                        break;
-                    }
-                case "ad":
-                    {
-                        result = _adData.UpdateADObject(type.Name, filter, update);
-                        break;
-                    }
-                default:
-                    {
-                        break;
-                    };
-            }
-            return result;
-        }
-        public List<dynamic> UpdateMany(Types type, Dictionary<string, dynamic> filter, Dictionary<string, dynamic> update)
-        {
-            switch (type.Type)
-            {
-                case "mongo": { return _mongoData.UpdateDocuments(type.Name, filter, update).Result; }
-                //case "sql": { return _sqlData.UpdateRecords(type.Name, filter, manyUpdate).Result; }
-                //case "ad": { return _adData.UpdateADObjects(type.Name, filter, manyUpdate); }
-                default: return null;
-            }
-        }
-        public Dictionary<string, dynamic> RemoveOne(Types type, Dictionary<string, dynamic> filter)
-        {
-            Dictionary<string, dynamic> result = new Dictionary<string, dynamic>();
-            switch (type.Type)
-            {
-                case "mongo":
-                    {
-                        result = _mongoData.RemoveDocument(type.Name, filter).Result;
-                        break;
-                    }
-                case "sql":
-                    {
-                        result = _sqlData.RemoveRecord(type.Name, filter).Result;
-                        break;
-                    }
-                case "ad":
-                    {
-                        result = _adData.RemoveADObject(type.Name, filter);
-                        break;
-                    }
-                default:
-                    {
-                        break;
-                    };
-            }
-            return result;
-        }
-        public List<dynamic> RemoveMany(Types type, Dictionary<string, dynamic> filter)
-        {
-            switch (type.Type)
-            {
-                case "mongo": { return _mongoData.RemoveDocuments(type.Name, filter).Result; }
-                //case "sql": { return _sqlData.RemoveRecords(type.Name, filter).Result; }
-                //case "ad": { return _adData.RemoveADObjects(type.Name, filter); }
-                default: return null;
-            }
-        }
+        
         public ISchema BuildSchemaFromSDL(List<Types> types)
         {
             List<string> typeSchema = new List<string>();
@@ -764,7 +479,7 @@ namespace DataCrush.TypiQL.Models
                 allowed = false;
                 foreach (string group in allowedGroups)
                 {
-                    if (_accessor.HttpContext.User.IsInRole(_settings.RolesDict[group].Value))
+                    if (_httpContext.HttpContext.User.IsInRole(_settings.RolesDict[group].Value))
                     {
                         allowed = true;
                     }
@@ -772,650 +487,7 @@ namespace DataCrush.TypiQL.Models
             }
             return allowed;
         }
-        public bool IsVariable(string value)
-        {
-            if (value.StartsWith("@"))
-            {
-                return true;
-            }
-            else
-            {
-                return false;
-            }
-        }
-        public dynamic ResolveVariable(string variable, Dictionary<string, dynamic> arguments = null)
-        {
-            if (variable.StartsWith("@currentUser") || variable.StartsWith("@user"))
-            {
-                return ResolveUser(variable, arguments);
-            }
-            else if (variable.StartsWith("@dName"))
-            {
-                return ResolveDistinguishedName(variable, arguments);
-            }
-            else if (variable == "@now")
-            {
-                return DateTime.UtcNow;
-            }
-            else if (variable.StartsWith("@today"))
-            {
-                return DateTime.Today;
-            }
-            else if (variable.StartsWith("@yesterday"))
-            {
-                return DateTime.Today.AddDays(-1);
-            }
-            else if (variable.StartsWith("@tomorrow"))
-            {
-                return DateTime.Today.AddDays(1);
-            }
-            else if (variable.StartsWith("@addToArray") || variable.StartsWith("@removeFromArray"))
-            {
-                return ResolveArray(variable, arguments);
-            }
-            else return null;
-        }
-        public dynamic ResolveArray(string variable, Dictionary<string, dynamic> arguments = null)
-        {
-            List<string> args = Regex.Match(variable.Split(".")[0], "(?<=\\()(.*?)(?=\\))").Value.Split("','").ToList();
-
-            return null;
-        }
-        public dynamic ResolveDistinguishedName(string variable, Dictionary<string, dynamic> arguments = null)
-        {
-            List<string> distinguishedNames = new List<string>();
-            if (arguments == null)
-            {
-                distinguishedNames = Regex.Match(variable.Split(".")[0], "(?<=\\(')(.*?)(?='\\))").Value.Split("','").ToList();
-            }
-            else
-            {
-                foreach (string arg in Regex.Match(variable.Split(".")[0], "(?<=\\()(.*?)(?=\\))").Value.Split("','").ToList())
-                {
-                    if (new string[] { "memberOf", "member", "distinguishedName", "manager", "directReports" }.Contains(arg))
-                    {
-                        if (arguments[arg] is string)
-                        {
-                            distinguishedNames.Add(((string)arguments[arg]).Trim());
-                        }
-                        else
-                        {
-                            foreach (string dn in arguments[arg])
-                            {
-                                distinguishedNames.Add(dn.Trim());
-                            }
-                        }
-
-                    }
-                }
-
-            }
-            string field = variable.Split(".")[1].Contains("(") ? "sAMAccountName" : variable.Split(".")[1];
-
-            Dictionary<string, dynamic> keys = new Dictionary<string, dynamic>();
-            dynamic result;
-            keys.Add("distinguishedName_in", distinguishedNames);
-            if (distinguishedNames.Count > 1)
-            {
-                result = new List<string>();
-                foreach (Dictionary<string, dynamic> obj in GetMany(_typeDict["Group"], keys))
-                {
-                    if (obj.ContainsKey(field) && obj[field] != null)
-                    {
-                        result.Add(obj[field]);
-                    }
-                }
-            }
-            else
-            {
-                Dictionary<string, dynamic> obj = GetOne(_typeDict["Group"], keys);
-                result = obj.ContainsKey(field) && obj[field] != null ? obj[field] : "";
-            }
-            return result;
-        }
-        public List<Dictionary<string, dynamic>> GetManyValues(
-            Types type,
-            List<Argument> arguments,
-            FieldType query,
-            IResolveFieldContext context,
-            Dictionary<string, dynamic> filter
-        )
-        {
-            List<Dictionary<string, dynamic>> manyValues = new List<Dictionary<string, dynamic>>();
-            List<Dictionary<string, dynamic>> manyAllowedValues = new List<Dictionary<string, dynamic>>();
-            foreach (Argument arg in arguments)
-            {
-                if (arg.Key == "items" || arg.Key == "updates")
-                {
-                    if (arg.Value is string && arg.Value == arg.Name)
-                    {
-                        foreach (Dictionary<string, dynamic> values in context.GetArgument<List<Dictionary<string, dynamic>>>(arg.Name))
-                        {
-                            Dictionary<string, dynamic> valuesToAdd = new Dictionary<string, dynamic>();
-                            foreach (KeyValuePair<string, dynamic> kv in values)
-                            {
-                                if (!valuesToAdd.ContainsKey(kv.Key))
-                                {
-                                    valuesToAdd.Add(kv.Key, kv.Value);
-                                }
-                            }
-                            manyValues.Add(valuesToAdd);
-                        }
-                    }
-                    else
-                    {
-                        foreach (Dictionary<string, dynamic> argVal in arg.Value)
-                        {
-                            Dictionary<string, dynamic> valuesToAdd = new Dictionary<string, dynamic>();
-                            foreach (KeyValuePair<string, dynamic> kv in argVal)
-                            {
-                                var value = kv.Value;
-                                if (context.GetArgument<dynamic>(arg.Name) != null)
-                                {
-                                    if (kv.Value is string && (string)kv.Value == arg.Name && context.GetArgument<dynamic>(arg.Name) != null)
-                                    {
-                                        value = context.GetArgument<dynamic>(arg.Name);
-                                    }
-                                    else if (kv.Value is string && ((string)kv.Value).Split(".")[0] == arg.Name && context.GetArgument<dynamic>(arg.Name) != null)
-                                    {
-                                        value = context.GetArgument<dynamic>(arg.Name)[((string)kv.Value).Split(".")[1]];
-                                    }
-                                    else if (kv.Value is string && ((string)kv.Value).StartsWith(arg.Name) && Regex.IsMatch(kv.Value, "(?<=\\()(.*?)(?=\\))"))
-                                    {
-                                        value = context.GetArgument<dynamic>(arg.Name);
-
-                                        Dictionary<string, dynamic> defaultValues = BsonTypeMapper.MapToDotNetValue(
-                                            BsonDocument.Parse(Regex.Match(kv.Value, "(?<=\\()(.*?)(?=\\))").Value)
-                                        );
-                                        foreach (KeyValuePair<string, dynamic> dv in defaultValues)
-                                        {
-                                            if (!((Dictionary<string, dynamic>)value).ContainsKey(dv.Key))
-                                            {
-                                                if (IsVariable(dv.Value))
-                                                {
-                                                    ((Dictionary<string, dynamic>)value).Add(dv.Key, ResolveVariable(dv.Value));
-                                                }
-                                                else
-                                                {
-                                                    ((Dictionary<string, dynamic>)value).Add(dv.Key, dv.Value);
-                                                }
-                                            }
-                                        }
-                                        valuesToAdd.Add(kv.Key, value);
-                                    }
-                                    else if (!(kv.Value is string) &&
-                                        ((List<dynamic>)kv.Value).Contains(arg.Name) &&
-                                        context.GetArgument<dynamic>(arg.Name) != null)
-                                    {
-                                        value[((List<dynamic>)value).FindIndex(v => v == arg.Name)] = context.GetArgument<dynamic>(arg.Name);
-                                    }
-                                }
-                                if (!valuesToAdd.ContainsKey(kv.Key))
-                                {
-                                    valuesToAdd.Add(kv.Key, value);
-                                }
-                            }
-                            manyValues.Add(valuesToAdd);
-                        }
-                    }
-                    foreach (QueryArgument queryArgument in query.Arguments)
-                    {
-                        if (queryArgument.Name == "items" || queryArgument.Name == "updates")
-                        {
-                            foreach (Dictionary<string, dynamic> valuesToAdd in context.GetArgument<List<dynamic>>(queryArgument.Name))
-                            {
-                                if (arguments.FindIndex(a => a.Name == queryArgument.Name) == -1)
-                                {
-                                    manyValues.Add(valuesToAdd);
-                                }
-                            }
-                        }
-                    }
-
-                    foreach (Dictionary<string, dynamic> values in manyValues)
-                    {
-                        Dictionary<string, dynamic> allowedValues = new Dictionary<string, dynamic>();
-                        Dictionary<string, dynamic> obj = GetOne(type, filter);
-                        foreach (KeyValuePair<string, dynamic> kv in values)
-                        {
-                            bool changeAllowed = true;
-                            if (type.Model.Fields[kv.Key.Split("_")[0]].AllowedGroups != null && type.Model.Fields[kv.Key.Split("_")[0]].AllowedGroups.Count > 0)
-                            {
-                                changeAllowed = false;
-                                foreach (string group in type.Model.Fields[kv.Key.Split("_")[0]].AllowedGroups)
-                                {
-                                    if (_accessor.HttpContext.User.IsInRole(group))
-                                    {
-                                        changeAllowed = true;
-                                    }
-                                }
-                            }
-                            if (changeAllowed)
-                            {
-                                if (kv.Value is string && type.MutationsDict[query.Name].ArgumentsDict.ContainsKey(kv.Value))
-                                {
-                                    Argument a = type.MutationsDict[query.Name].ArgumentsDict[kv.Value];
-                                    allowedValues.Add(kv.Key, context.GetArgument(Type.GetType($"System.{a.Type}", true, true), a.Name));
-                                }
-                                else if (kv.Value is string && type.Model.Fields.ContainsKey(kv.Value))
-                                {
-                                    Column a = type.Model.Fields[kv.Value];
-                                    allowedValues.Add(kv.Key, obj[a.DataName]);
-                                }
-                                else if (kv.Value is string &&
-                                    type.MutationsDict[query.Name].ArgumentsDict.ContainsKey(Regex.Match(kv.Value, "(?<=\\()(.*?)(?=\\))").Value))
-                                {
-                                    Argument a = type.MutationsDict[query.Name].ArgumentsDict[Regex.Match(kv.Value, "(?<=\\()(.*?)(?=\\))").Value];
-                                    if (IsVariable(kv.Value))
-                                    {
-                                        allowedValues.Add(
-                                            kv.Key,
-                                            ResolveVariable(
-                                                kv.Value,
-                                                Regex.Replace(
-                                                    kv.Value,
-                                                    "(?<=\\()(.*?)(?=\\))",
-                                                    (string)context.GetArgument(Type.GetType($"System.{a.Type}", true, true), a.Name)
-                                                )
-                                            )
-                                        );
-                                    }
-                                    else
-                                    {
-                                        allowedValues.Add(
-                                            kv.Key,
-                                            Regex.Replace(
-                                                kv.Value,
-                                                "(?<=\\()(.*?)(?=\\))",
-                                                (string)context.GetArgument(Type.GetType($"System.{a.Type}", true, true), a.Name)
-                                            )
-                                        );
-                                    }
-                                }
-                                else if (kv.Value is string && type.Model.Fields.ContainsKey(Regex.Match(kv.Value, "(?<=\\()(.*?)(?=\\))").Value))
-                                {
-                                    Column a = type.Model.Fields[Regex.Match(kv.Value, "(?<=\\()(.*?)(?=\\))").Value];
-                                    if (IsVariable(kv.Value))
-                                    {
-                                        allowedValues.Add(kv.Key, ResolveVariable(kv.Value, Regex.Replace(kv.Value, "(?<=\\()(.*?)(?=\\))", obj[a.DataName])));
-                                    }
-                                    else
-                                    {
-                                        allowedValues.Add(kv.Key, Regex.Replace(kv.Value, "(?<=\\()(.*?)(?=\\))", obj[a.DataName]));
-                                    }
-                                }
-                                else if (kv.Value is string && IsVariable(kv.Value))
-                                {
-                                    allowedValues.Add(kv.Key, ResolveVariable(kv.Value));
-                                }
-                                else if (type.Model.Fields[kv.Key.Split("_")[0]].ColumnType == "DateTime")
-                                {
-                                    allowedValues.Add(kv.Key, new DateTimeGraphType().ParseValue(kv.Value));
-                                }
-                                else if (type.Model.Fields[kv.Key.Split("_")[0]].ColumnType == "DateTimeOffset")
-                                {
-                                    allowedValues.Add(kv.Key, new DateTimeGraphType().ParseValue(kv.Value));
-                                }
-                                else
-                                {
-                                    allowedValues.Add(kv.Key, kv.Value);
-                                }
-                            }
-                        }
-                        manyAllowedValues.Add(allowedValues);
-                    }
-                }
-            }
-            return manyAllowedValues;
-        }
-        public Dictionary<string, dynamic> GetValues(
-            Types type,
-            List<Argument> arguments,
-            FieldType query,
-            IResolveFieldContext context,
-            Dictionary<string, dynamic> filter
-        )
-        {
-            Dictionary<string, dynamic> values = new Dictionary<string, dynamic>();
-            foreach (Argument arg in arguments)
-            {
-                if (arg.Key == "values" || arg.Key == "update")
-                {
-                    if (arg.Value is string && arg.Value == arg.Name)
-                    {
-                        foreach (KeyValuePair<string, dynamic> kv in context.GetArgument<dynamic>(arg.Name))
-                        {
-                            if (!values.ContainsKey(kv.Key))
-                            {
-                                values.Add(kv.Key, kv.Value);
-                            }
-                        }
-                    }
-                    else
-                    {
-                        foreach (KeyValuePair<string, dynamic> kv in arg.Value)
-                        {
-                            var value = kv.Value;
-                            if (context.GetArgument<dynamic>(arg.Name) != null)
-                            {
-                                if (kv.Value is string && (string)kv.Value == arg.Name && context.GetArgument<dynamic>(arg.Name) != null)
-                                {
-                                    value = context.GetArgument<dynamic>(arg.Name);
-                                }
-                                else if (kv.Value is string && ((string)kv.Value).Split(".")[0] == arg.Name && context.GetArgument<dynamic>(arg.Name) != null)
-                                {
-                                    value = context.GetArgument<dynamic>(arg.Name)[((string)kv.Value).Split(".")[1]];
-                                }
-                                else if (kv.Value is string && ((string)kv.Value).StartsWith(arg.Name) && Regex.IsMatch(kv.Value, "(?<=\\()(.*?)(?=\\))"))
-                                {
-                                    value = context.GetArgument<dynamic>(arg.Name);
-
-                                    Dictionary<string, dynamic> defaultValues = BsonTypeMapper.MapToDotNetValue(
-                                        BsonDocument.Parse(Regex.Match(kv.Value, "(?<=\\()(.*?)(?=\\))").Value)
-                                    );
-                                    foreach (KeyValuePair<string, dynamic> dv in defaultValues)
-                                    {
-                                        if (!((Dictionary<string, dynamic>)value).ContainsKey(dv.Key))
-                                        {
-                                            if (IsVariable(dv.Value))
-                                            {
-                                                ((Dictionary<string, dynamic>)value).Add(dv.Key, ResolveVariable(dv.Value));
-                                            }
-                                            else
-                                            {
-                                                ((Dictionary<string, dynamic>)value).Add(dv.Key, dv.Value);
-                                            }
-                                        }
-                                    }
-                                    values.Add(kv.Key, value);
-                                }
-                                else if (!(kv.Value is string) &&
-                                    ((List<dynamic>)kv.Value).Contains(arg.Name) &&
-                                    context.GetArgument<dynamic>(arg.Name) != null)
-                                {
-                                    value[((List<dynamic>)value).FindIndex(v => v == arg.Name)] = context.GetArgument<dynamic>(arg.Name);
-                                }
-                            }
-                            if (!values.ContainsKey(kv.Key))
-                            {
-                                values.Add(kv.Key, value);
-                            }
-                        }
-                    }
-                }
-            }
-            foreach (QueryArgument queryArgument in query.Arguments)
-            {
-                if (queryArgument.Name == "values" || queryArgument.Name == "update")
-                {
-                    var wat = context.Arguments[queryArgument.Name];//GetArgument<Dictionary<string, dynamic>>(queryArgument.Name);
-                    var huh = context.GetArgument<dynamic>(queryArgument.Name);
-                    foreach (KeyValuePair<string, dynamic> kv in context.GetArgument<dynamic>(queryArgument.Name))
-                    {
-                        if (!values.ContainsKey(kv.Key))
-                        {
-                            values.Add(kv.Key, kv.Value);
-                        }
-                        else
-                        {
-                            values[kv.Key] = kv.Value;
-                        }
-                    }
-                }
-            }
-            Dictionary<string, dynamic> allowedValues = new Dictionary<string, dynamic>();
-            Dictionary<string, dynamic> obj = GetOne(type, filter);
-            foreach (KeyValuePair<string, dynamic> kv in values)
-            {
-                bool changeAllowed = true;
-                if (type.Model.Fields[kv.Key.Split("_")[0]].AllowedGroups != null && type.Model.Fields[kv.Key.Split("_")[0]].AllowedGroups.Count > 0)
-                {
-                    changeAllowed = false;
-                    foreach (string group in type.Model.Fields[kv.Key.Split("_")[0]].AllowedGroups)
-                    {
-                        if (_accessor.HttpContext.User.IsInRole(group))
-                        {
-                            changeAllowed = true;
-                        }
-                    }
-                }
-                if (changeAllowed)
-                {
-                    if (kv.Value is string && type.MutationsDict[query.Name].ArgumentsDict.ContainsKey(kv.Value))
-                    {
-                        Argument a = type.MutationsDict[query.Name].ArgumentsDict[kv.Value];
-                        allowedValues.Add(kv.Key, context.GetArgument(Type.GetType($"System.{a.Type}", true, true), a.Name));
-                    }
-                    else if (kv.Value is string && type.Model.Fields.ContainsKey(kv.Value))
-                    {
-                        Column a = type.Model.Fields[kv.Value];
-                        allowedValues.Add(kv.Key, obj[a.DataName]);
-                    }
-                    else if (kv.Value is string &&
-                        type.MutationsDict[query.Name].ArgumentsDict.ContainsKey(Regex.Match(kv.Value, "(?<=\\()(.*?)(?=\\))").Value))
-                    {
-                        Argument a = type.MutationsDict[query.Name].ArgumentsDict[Regex.Match(kv.Value, "(?<=\\()(.*?)(?=\\))").Value];
-                        if (IsVariable(kv.Value))
-                        {
-                            allowedValues.Add(
-                                kv.Key,
-                                ResolveVariable(
-                                    kv.Value,
-                                    Regex.Replace(
-                                        kv.Value,
-                                        "(?<=\\()(.*?)(?=\\))",
-                                        (string)context.GetArgument(Type.GetType($"System.{a.Type}", true, true), a.Name)
-                                    )
-                                )
-                            );
-                        }
-                        else
-                        {
-                            allowedValues.Add(
-                                kv.Key,
-                                Regex.Replace(
-                                    kv.Value,
-                                    "(?<=\\()(.*?)(?=\\))",
-                                    (string)context.GetArgument(Type.GetType($"System.{a.Type}", true, true), a.Name)
-                                )
-                            );
-                        }
-                    }
-                    else if (kv.Value is string && type.Model.Fields.ContainsKey(Regex.Match(kv.Value, "(?<=\\()(.*?)(?=\\))").Value))
-                    {
-                        Column a = type.Model.Fields[Regex.Match(kv.Value, "(?<=\\()(.*?)(?=\\))").Value];
-                        if (IsVariable(kv.Value))
-                        {
-                            allowedValues.Add(kv.Key, ResolveVariable(kv.Value, Regex.Replace(kv.Value, "(?<=\\()(.*?)(?=\\))", obj[a.DataName])));
-                        }
-                        else
-                        {
-                            allowedValues.Add(kv.Key, Regex.Replace(kv.Value, "(?<=\\()(.*?)(?=\\))", obj[a.DataName]));
-                        }
-                    }
-                    else if (kv.Value is string && IsVariable(kv.Value))
-                    {
-                        allowedValues.Add(kv.Key, ResolveVariable(kv.Value));
-                    }
-                    else if (type.Model.Fields[kv.Key.Split("_")[0]].ColumnType == "DateTime")
-                    {
-                        allowedValues.Add(kv.Key, new DateTimeGraphType().ParseValue(kv.Value));
-                    }
-                    else if (type.Model.Fields[kv.Key.Split("_")[0]].ColumnType == "DateTimeOffset")
-                    {
-                        allowedValues.Add(kv.Key, new DateTimeGraphType().ParseValue(kv.Value));
-                    }
-                    else
-                    {
-                        allowedValues.Add(kv.Key, kv.Value);
-                    }
-                }
-            }
-            return allowedValues;
-        }
-        public Dictionary<string, dynamic> BuildQueryFilter(Types type, List<Argument> arguments, FieldType query, IResolveFieldContext context)
-        {
-            Dictionary<string, Argument> args = new Dictionary<string, Argument>();
-            Dictionary<string, dynamic> filter = new Dictionary<string, dynamic>();
-            foreach (Argument arg in arguments)
-            {
-                args.Add(arg.Name, arg);
-                if (!filter.ContainsKey(arg.Name) && arg.Key != "values" && arg.Key != "update" && arg.Key != "manyValues" && arg.Key != "updates" && !filter.ContainsKey(arg.Key))
-                {
-                    if (arg.Value is string)
-                    {
-                        if (arg.Value == arg.Name)
-                        {
-                            if (context.GetArgument(Type.GetType($"System.{arg.Type}", true, true), arg.Name) != null)
-                            {
-                                filter.Add(arg.Key, context.GetArgument(Type.GetType($"System.{arg.Type}", true, true), arg.Name));
-                            }
-                        }
-                        else if (Regex.IsMatch(arg.Value, $"(?<=\\(){arg.Name}(?=\\))"))
-                        {
-                            if (context.GetArgument(Type.GetType($"System.{arg.Type}", true, true), arg.Name) != null)
-                            {
-                                if (IsVariable(arg.Value))
-                                {
-                                    filter.Add(arg.Key, ResolveVariable(Regex.Replace(arg.Value, $"(?<=\\(){arg.Name}(?=\\))", (string)context.GetArgument(Type.GetType($"System.{arg.Type}", true, true), arg.Name))));
-                                }
-                                else
-                                {
-                                    filter.Add(arg.Key, Regex.Replace(arg.Value, $"(?<=\\(){arg.Name}(?=\\))", (string)context.GetArgument(Type.GetType($"System.{arg.Type}", true, true), arg.Name)));
-                                }
-                            }
-                        }
-                        else if (IsVariable(arg.Value))
-                        {
-                            filter.Add(arg.Key, ResolveVariable(arg.Value));
-                        }
-                        else if (arg.Type == "DateTime")
-                        {
-                            filter.Add(arg.Key, new DateTimeGraphType().ParseValue(arg.Value));
-                        }
-                        else if (arg.Type == "DateTimeOffset")
-                        {
-                            filter.Add(arg.Key, new DateTimeOffsetGraphType().ParseValue(arg.Value));
-                        }
-                        else
-                        {
-                            filter.Add(arg.Key, arg.Value);
-                        }
-                    }
-                    else
-                    {
-                        filter.Add(arg.Key, arg.Value);
-                    }
-                }
-            }
-            foreach (QueryArgument queryArgument in query.Arguments)
-            {
-                if (!filter.ContainsKey(queryArgument.Name))
-                {
-                    if (queryArgument.Name != "values" && queryArgument.Name != "update")
-                    {
-                        if (!args.ContainsKey(queryArgument.Name))
-                        {
-                            if (context.GetArgument<dynamic>(
-                                    queryArgument.Name
-                                ) != null)
-                            {
-                                filter.Add(
-                                    queryArgument.Name,
-                                    context.GetArgument<dynamic>(
-                                        queryArgument.Name
-                                    )
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-            return filter;
-        }
-        public Dictionary<string, dynamic> BuildFilter(Types thisType, string field, Dictionary<string, dynamic> obj)
-        {
-            Dictionary<string, dynamic> filters = new Dictionary<string, dynamic>();
-            foreach (Argument arg in thisType.Model.Fields[field].Arguments)
-            {
-                if (arg.Value is string && thisType.Model.Fields.ContainsKey(arg.Value) && obj.ContainsKey(thisType.Model.Fields[arg.Value].DataName))
-                {
-                    if (obj[thisType.Model.Fields[arg.Value].DataName] != null)
-                    {
-                        filters.Add(arg.Key, obj[thisType.Model.Fields[arg.Value].DataName]);
-                    }
-                }
-                else if (arg.Value is string && thisType.Model.Fields.ContainsKey(arg.Value) && !obj.ContainsKey(thisType.Model.Fields[arg.Value].DataName))
-                {
-                    switch (arg.Type)
-                    {
-                        case "List":
-                            {
-                                filters.Add(arg.Key, new List<dynamic>());
-                                break;
-                            }
-                        case "Object":
-                            {
-                                filters.Add(arg.Key, new Dictionary<string, dynamic>());
-                                break;
-                            }
-                        default:
-                            {
-                                filters.Add(arg.Key, "");
-                                break;
-                            }
-                    }
-                }
-                else
-                {
-                    if (arg.Value is string)
-                    {
-                        if (arg.Value == arg.Name)
-                        {
-                            filters.Add(arg.Key, arg.Value);
-                        }
-                        else if (Regex.IsMatch(arg.Value, "(?<=\\()(.*?)(?=\\))"))
-                        {
-                            Dictionary<string, dynamic> arguments = new Dictionary<string, dynamic>();
-
-                            foreach (string c in Regex.Match(arg.Value, "(?<=\\()(.*?)(?=\\))").Value.Split(","))
-                            {
-                                if (thisType.Model.Fields.ContainsKey(c) && obj[c] != null)
-                                {
-                                    arguments.Add(c, obj[thisType.Model.Fields[c].DataName]);
-                                }
-                                else if (thisType.Model.Fields.ContainsKey(c) && obj.Count == 0)
-                                {
-                                    arguments.Add(c, null);
-                                }
-                            }
-                            filters.Add(arg.Key, ResolveVariable(arg.Value, arguments));
-                        }
-                        else if (IsVariable(arg.Value))
-                        {
-                            filters.Add(arg.Key, ResolveVariable(arg.Value, new Dictionary<string, dynamic>()));
-                        }
-                        else if (arg.Type == "DateTime")
-                        {
-                            filters.Add(arg.Key, new DateTimeGraphType().ParseValue(arg.Value));
-                        }
-                        else if (arg.Type == "DateTimeOffset")
-                        {
-                            filters.Add(arg.Key, new DateTimeOffsetGraphType().ParseValue(arg.Value));
-                        }
-                        else
-                        {
-                            filters.Add(arg.Key, arg.Value);
-                        }
-                    }
-                    else
-                    {
-                        filters.Add(arg.Key, arg.Value);
-                    }
-                }
-            }
-            return filters;
-        }
+        
         public List<QueryArgument> FilterArgs(Types type, FieldType query, Query thisQuery, ISchema schema)
         {
             //TODO ADD DESCRIPTIONS TO ALL THESE HERE ARGUMENTS

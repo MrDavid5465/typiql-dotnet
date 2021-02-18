@@ -1,4 +1,7 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using GraphQL.Instrumentation;
+using LinqKit;
+using Microsoft.AspNetCore.Http;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.Extensions.Options;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -9,8 +12,10 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Dynamic;
 using System.IO;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Threading.Tasks;
 
 namespace DataCrush.TypiQL.Models.Mongo
@@ -19,10 +24,10 @@ namespace DataCrush.TypiQL.Models.Mongo
     {
         private readonly IHttpContextAccessor _context;
         private readonly Dictionary<string, IMongoDatabase> _connections;
-        private readonly Dictionary<string, Types> _types;
         private ConfigData _data;
         private readonly Dictionary<string, GridFSBucket> _buckets;
-        public MongoData(TypiQLSettings settings, IHttpContextAccessor context, ConfigData data)
+        private readonly SchemaHelpers _helpers;
+        public MongoData(TypiQLSettings settings, IHttpContextAccessor context, ConfigData data, SchemaHelpers helpers)
         {
             _context = context;
             _data = data;
@@ -55,12 +60,7 @@ namespace DataCrush.TypiQL.Models.Mongo
             }
             if (adConnection != null)
                 _connections.Add(adConnection.Id.ToString(), new MongoClient(settings.TypiQLConnectionString).GetDatabase(settings.TypiQLDatabase));
-            List<Types> types = data.GetTypes("mongo").Result;
-            _types = new Dictionary<string, Types>();
-            foreach (Types t in types)
-            {
-                _types.Add(t.Name, t);
-            }
+            _helpers = helpers;
         }
         public FilterDefinition<BsonDocument> BuildFilter(Types t, Dictionary<string, dynamic> keys, ref int skip, ref int limit, List<SortDefinition<BsonDocument>> sort, ref bool upsert)
         {
@@ -197,7 +197,7 @@ namespace DataCrush.TypiQL.Models.Mongo
                     }
                     else if (key.Key.Split("_").Length > 1 && key.Key.Split("_").Length == 3)
                     {
-                        Types st = _types[_data.ResolveType(t.Model.Fields[key.Key.Split("_")[0]].ColumnGraphType).Name];
+                        Types st = _data.typeDict[_data.ResolveType(t.Model.Fields[key.Key.Split("_")[0]].ColumnGraphType).Name];
                         if (key.Value == null || key.Value is string && key.Value == "")
                         {
 
@@ -547,18 +547,13 @@ namespace DataCrush.TypiQL.Models.Mongo
             }
             return Builders<BsonDocument>.Filter.And(filters);
         }
+        
         public dynamic Result(BsonDocument document)
         {
             if (document == null)
             {
                 return null;
             }
-            //Dictionary<string, dynamic> result = new Dictionary<string, dynamic>();
-            //foreach (var bsonElement in document)
-            //{
-            //    result.Add(bsonElement.Name, BsonTypeMapper.MapToDotNetValue(bsonElement.Value));
-            //}
-            //return result;
             return BsonTypeMapper.MapToDotNetValue(document);
         }
         public List<dynamic> Results(List<BsonDocument> documents)
@@ -570,21 +565,28 @@ namespace DataCrush.TypiQL.Models.Mongo
             List<dynamic> results = new List<dynamic>();
             foreach (BsonDocument document in documents)
             {
-                //Dictionary<string, dynamic> result = new Dictionary<string, dynamic>();
-                //foreach (var bsonElement in document)
-                //{
-                //    result.Add(bsonElement.Name, BsonTypeMapper.MapToDotNetValue(bsonElement.Value));
-                //}
-                //results.Add(result);
                 results.Add(Result(document));
             }
 
             return results;
         }
+        public List<Dictionary<string, dynamic>> ResultsAsDicts(List<BsonDocument> documents)
+        {
+            if (documents == null)
+            {
+                return null;
+            }
+            List<Dictionary<string, dynamic>> results = new List<Dictionary<string, dynamic>>();
+            foreach (BsonDocument document in documents)
+            {
+                results.Add(Result(document));
+            }
+            return results;
+        }
 
         public async Task<Dictionary<string, dynamic>> GetDocument(string collection, Dictionary<string, dynamic> keys)
         {
-            Types t = _types[collection];
+            Types t = _data.typeDict[collection];
 
             List<SortDefinition<BsonDocument>> sort = new List<SortDefinition<BsonDocument>>();
             int skip = 0;
@@ -601,7 +603,7 @@ namespace DataCrush.TypiQL.Models.Mongo
         }
         public async Task<List<dynamic>> GetDocuments(string collection, Dictionary<string, dynamic> keys)
         {
-            Types t = _types[collection];
+            Types t = _data.typeDict[collection];
 
             List<SortDefinition<BsonDocument>> sort = new List<SortDefinition<BsonDocument>>();
             int skip = 0;
@@ -624,9 +626,172 @@ namespace DataCrush.TypiQL.Models.Mongo
                 return results;
             }
         }
+        public async Task<Dictionary<string, dynamic>> BatchDocument(string type, IEnumerable<string> keySets, Types parentType, string parentField)
+        {
+            Types t = _data.typeDict[type];
+            List<FilterDefinition<BsonDocument>> filters = new List<FilterDefinition<BsonDocument>>();
+            Dictionary<string, ExpressionStarter<Dictionary<string, object>>> linqFilters = new Dictionary<string, ExpressionStarter<Dictionary<string, dynamic>>>();
+
+            Dictionary<string, dynamic> result;
+            Dictionary<string, dynamic> filtersFromResults = new Dictionary<string, dynamic>();
+
+            Dictionary<string, dynamic> values = new Dictionary<string, dynamic>();
+            List<string> dataNames = new List<string>();
+
+            foreach (var column in t.Model.Columns)
+            {
+                if (column.DataName != null && column.DataName != "")
+                    dataNames.Add($"{column.DataName} AS '{column.DataName}'");
+            }
+
+            foreach (var json in keySets)
+            {
+                Dictionary<string, dynamic> keys = (Dictionary<string, dynamic>)BsonTypeMapper.MapToDotNetValue(BsonDocument.Parse(json));
+                List<SortDefinition<BsonDocument>> sort = new List<SortDefinition<BsonDocument>>();
+                int skip = 0;
+                int limit = 0;
+                bool upsert = false;
+                var filter = BuildFilter(t, keys, ref skip, ref limit, sort, ref upsert);
+                filters.Add(filter);
+                linqFilters.Add(json, _helpers.BuildLinqFilter(t, keys));
+                filtersFromResults.Add(json, new Dictionary<string, dynamic>());
+            }
+
+            
+            var results = ResultsAsDicts(await _connections[t.Connection]
+                .GetCollection<BsonDocument>(t.Model.Name)
+                .Find(Builders<BsonDocument>.Filter.Or(filters))
+                .ToListAsync());
+            bool fail = false;
+            foreach (Dictionary<string, dynamic> obj in results)
+            {
+                if (!fail)
+                {
+                    try
+                    {
+                        string filter = _helpers.BuildFilterFromResult(t, parentType, parentField, obj);
+                        if (filter == "invalid")
+                        {
+                            fail = true;
+                        }
+                        else
+                        {
+                            filtersFromResults[filter] = obj;
+                        }
+                    }
+                    catch
+                    {
+                        fail = true;
+                    }
+                }
+            }
+            if (fail)
+            {
+                result = new Dictionary<string, dynamic>();
+                foreach (var linq in linqFilters)
+                {
+                    try
+                    {
+var r = results.AsQueryable().Where(linq.Value).FirstOrDefault();
+                    result.Add(linq.Key, r);
+                    }
+                    catch (Exception e)
+                    {
+
+                    }
+                    
+                }
+            }
+            else
+            {
+                result = filtersFromResults;
+            }
+            return result;
+        }
+        public async Task<Dictionary<string, dynamic>> BatchDocuments(string type, IEnumerable<string> keySets, Types parentType, string parentField)
+        {
+            Types t = _data.typeDict[type];
+            List<FilterDefinition<BsonDocument>> filters = new List<FilterDefinition<BsonDocument>>();
+            Dictionary<string, ExpressionStarter<Dictionary<string, object>>> linqFilters = new Dictionary<string, ExpressionStarter<Dictionary<string, dynamic>>>();
+
+            Dictionary<string, dynamic> result;
+            Dictionary<string, dynamic> filtersFromResults = new Dictionary<string, dynamic>();
+
+            Dictionary<string, dynamic> values = new Dictionary<string, dynamic>();
+            List<string> dataNames = new List<string>();
+
+            foreach (var column in t.Model.Columns)
+            {
+                if (column.DataName != null && column.DataName != "")
+                    dataNames.Add($"{column.DataName} AS '{column.DataName}'");
+            }
+
+            foreach (var json in keySets)
+            {
+                Dictionary<string, dynamic> keys = (Dictionary<string, dynamic>)BsonTypeMapper.MapToDotNetValue(BsonDocument.Parse(json));
+                List<SortDefinition<BsonDocument>> sort = new List<SortDefinition<BsonDocument>>();
+                int skip = 0;
+                int limit = 0;
+                bool upsert = false;
+                var filter = BuildFilter(t, keys, ref skip, ref limit, sort, ref upsert);
+                filters.Add(filter);
+                linqFilters.Add(json, _helpers.BuildLinqFilter(t, keys));
+                filtersFromResults.Add(json, new List<dynamic>());
+            }
+
+
+            var results = ResultsAsDicts(await _connections[t.Connection]
+                .GetCollection<BsonDocument>(t.Model.Name)
+                .Find(Builders<BsonDocument>.Filter.Or(filters))
+                .ToListAsync());
+            bool fail = false;
+            foreach (Dictionary<string, dynamic> obj in results)
+            {
+                if (!fail)
+                {
+                    try
+                    {
+                        string filter = _helpers.BuildFilterFromResult(t, parentType, parentField, obj);
+                        if (filter == "invalid")
+                        {
+                            fail = true;
+                        }
+                        else
+                        {
+                            ((List<dynamic>)filtersFromResults[filter]).Add(obj);
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        fail = true;
+                    }
+                }
+            }
+            if (fail)
+            {
+                result = new Dictionary<string, dynamic>();
+                foreach (var linq in linqFilters)
+                {try
+                    {
+var r = results.AsQueryable().Where(linq.Value).ToList();
+                    result.Add(linq.Key, r);
+                    }
+                    
+                    catch (Exception e)
+                    {
+
+                    }
+                }
+            }
+            else
+            {
+                result = filtersFromResults;
+            }
+            return result;
+        }
         public async Task<Dictionary<string, dynamic>> UpdateDocument(string collection, Dictionary<string, dynamic> keys, Dictionary<string, dynamic> update)
         {
-            Types t = _types[collection];
+            Types t = _data.typeDict[collection];
 
             List<SortDefinition<BsonDocument>> sort = new List<SortDefinition<BsonDocument>>();
             int skip = 0;
@@ -713,7 +878,7 @@ namespace DataCrush.TypiQL.Models.Mongo
         }
         public async Task<List<dynamic>> UpdateDocuments(string collection, Dictionary<string,dynamic> keys, Dictionary<string,dynamic> update)
         {
-            Types t = _types[collection];
+            Types t = _data.typeDict[collection];
 
             List<SortDefinition<BsonDocument>> sort = new List<SortDefinition<BsonDocument>>();
             int skip = 0;
@@ -759,7 +924,7 @@ namespace DataCrush.TypiQL.Models.Mongo
         }
         public async Task<Dictionary<string, dynamic>> AddDocument(string collection, Dictionary<string, dynamic> values)
         {
-            Types t = _types[collection];
+            Types t = _data.typeDict[collection];
             ObjectId id = ObjectId.GenerateNewId();
             var valuesCorrected = new Dictionary<string, dynamic>();
             foreach(KeyValuePair<string, dynamic> kv in values)
@@ -797,7 +962,7 @@ namespace DataCrush.TypiQL.Models.Mongo
         }
         public async Task<List<dynamic>> AddDocuments(string collection, List<Dictionary<string, dynamic>> manyValues)
         {
-            Types t = _types[collection];
+            Types t = _data.typeDict[collection];
             List<BsonDocument> manyBsonValues = new List<BsonDocument>();
             var ids = new List<ObjectId>();
             foreach (Dictionary<string, dynamic> values in manyValues)
@@ -842,7 +1007,7 @@ namespace DataCrush.TypiQL.Models.Mongo
         }
         public async Task<Dictionary<string, dynamic>> RemoveDocument(string collection, Dictionary<string, dynamic> keys)
         {
-            Types t = _types[collection];
+            Types t = _data.typeDict[collection];
             List<SortDefinition<BsonDocument>> sort = new List<SortDefinition<BsonDocument>>();
             int skip = 0;
             int limit = 0;
@@ -868,7 +1033,7 @@ namespace DataCrush.TypiQL.Models.Mongo
         }
         public async Task<List<dynamic>> RemoveDocuments(string collection, Dictionary<string, dynamic> keys)
         {
-            Types t = _types[collection];
+            Types t = _data.typeDict[collection];
             List<SortDefinition<BsonDocument>> sort = new List<SortDefinition<BsonDocument>>();
             int skip = 0;
             int limit = 0;
@@ -900,7 +1065,7 @@ namespace DataCrush.TypiQL.Models.Mongo
         }
         public async Task<string> ReadFileAsBase64(string type, string id)
         {
-            Types t = _types[type];
+            Types t = _data.typeDict[type];
             if (id == "")
             {
                 return "";

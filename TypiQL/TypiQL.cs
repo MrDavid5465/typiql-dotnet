@@ -2,6 +2,8 @@
 using DataCrush.TypiQL.Models.AD;
 using DataCrush.TypiQL.Models.Mongo;
 using DataCrush.TypiQL.Models.Sql;
+using GraphQL;
+using GraphQL.DataLoader;
 using GraphQL.Server;
 using GraphQL.Server.Ui.GraphiQL;
 using GraphQL.Types;
@@ -15,6 +17,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using TypiQL.Models;
 
 namespace DataCrush.TypiQL
 {
@@ -23,8 +26,11 @@ namespace DataCrush.TypiQL
         public static IServiceCollection AddTypiQL(this IServiceCollection services, List<TypiQLRole> roles)
         {
             services.AddHttpContextAccessor()
+            .AddSingleton<IDataLoaderContextAccessor, DataLoaderContextAccessor>()
+            .AddSingleton<DataLoaderDocumentListener>()
             .AddSingleton<TypiQLMongoContext>()
             .AddSingleton<BaseSchema>()
+            .AddSingleton<SchemaHelpers>()
             .AddSingleton<TypesRepo>()
             .AddSingleton<ConnectionsRepo>()
             .AddSingleton<ConfigData>()
@@ -34,6 +40,7 @@ namespace DataCrush.TypiQL
             .AddSingleton<Queries>()
             .AddSingleton<Mutations>()
             .AddSingleton<Subscriptions>()
+            .AddSingleton<IDocumentExecuter, DocumentExecuter>(sp => new DocumentExecuter { })
             .AddGraphQL(_ =>
             {
                 _.EnableMetrics = false;
@@ -62,7 +69,16 @@ namespace DataCrush.TypiQL
         {
             app.UseWebSockets();
             app.UseGraphQLWebSockets<ISchema>("/graphql");
-            app.UseGraphQL<ISchema, TypiQLMiddleware<ISchema>>("/graphql");
+            //app.UseGraphQL<ISchema, TypiQLMiddleware<ISchema>>("/graphql");
+            app.UseMiddleware<GraphQLMiddleware>(new GraphQLSettings
+            {
+                Path = "/graphql",
+                BuildUserContext = ctx => new GraphQLUserContext
+                {
+                    User = ctx.User
+                },
+                EnableMetrics = true
+            });
             app.UseGraphiQLServer(new GraphiQLOptions { GraphQLEndPoint = "/typiql/graphql"});
             return app;
         }
