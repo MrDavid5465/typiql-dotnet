@@ -1,5 +1,5 @@
 
-name: 
+name: $(Version)
 
 variables:
   buildConfiguration: "Release"
