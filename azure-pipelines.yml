@@ -1,10 +1,11 @@
 
-name: 0.0.$(Patch)
+name: 
 
 variables:
   buildConfiguration: "Release"
   Minor: 0
   patch: $[counter(variables['Minor'], 0)]
+  Version: 0.$(Minor).$(Patch)
 
 steps:
   - task: UseDotNet@2
