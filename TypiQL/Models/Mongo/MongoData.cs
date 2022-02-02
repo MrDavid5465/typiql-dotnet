@@ -654,7 +654,7 @@ namespace DataCrush.TypiQL.Models.Mongo
                 var filter = BuildFilter(t, keys, ref skip, ref limit, sort, ref upsert);
                 filters.Add(filter);
                 linqFilters.Add(json, _helpers.BuildLinqFilter(t, keys));
-                filtersFromResults.Add(json, new Dictionary<string, dynamic>());
+                filtersFromResults.Add(json, null);
             }
 
             
@@ -690,16 +690,8 @@ namespace DataCrush.TypiQL.Models.Mongo
                 result = new Dictionary<string, dynamic>();
                 foreach (var linq in linqFilters)
                 {
-                    try
-                    {
-var r = results.AsQueryable().Where(linq.Value).FirstOrDefault();
+                    var r = results.AsQueryable().Where(linq.Value).FirstOrDefault();
                     result.Add(linq.Key, r);
-                    }
-                    catch (Exception e)
-                    {
-
-                    }
-                    
                 }
             }
             else
@@ -771,16 +763,9 @@ var r = results.AsQueryable().Where(linq.Value).FirstOrDefault();
             {
                 result = new Dictionary<string, dynamic>();
                 foreach (var linq in linqFilters)
-                {try
-                    {
-var r = results.AsQueryable().Where(linq.Value).ToList();
+                {
+                    var r = results.AsQueryable().Where(linq.Value).ToList();
                     result.Add(linq.Key, r);
-                    }
-                    
-                    catch (Exception e)
-                    {
-
-                    }
                 }
             }
             else

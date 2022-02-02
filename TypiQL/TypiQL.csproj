@@ -3,7 +3,6 @@
   <PropertyGroup>
     <TargetFramework>netcoreapp3.1</TargetFramework>
     <Version Condition=" '$(Version)' == '' ">1.0.8-$(COMPUTERNAME)</Version>
-    <Version Condition=" '$(Version)' != '' ">$(Version)</Version>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
   </PropertyGroup>
 
