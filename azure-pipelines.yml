@@ -1,0 +1,46 @@
+pool: "Default"
+
+
+name: 0.0.$(Patch)
+
+variables:
+  buildConfiguration: "Release"
+  Minor: 0
+  patch: $[counter(variables['Minor'], 0)]
+
+steps:
+  - task: UseDotNet@2
+    displayName: ".NET Core 3.1.x"
+    inputs:
+      version: "3.1.x"
+      packageType: sdk
+
+  - task: DotNetCoreCLI@2
+    displayName: "dotnet build $(buildConfiguration)"
+    inputs:
+      command: "build"
+      arguments: "--configuration $(BuildConfiguration)"
+
+  - task: DotNetCoreCLI@2
+    displayName: "dotnet test $(buildConfiguration)"
+    inputs:
+      command: "test"
+
+  - task: DotNetCoreCLI@2
+    displayName: "dotnet pack $(buildConfiguration)"
+    inputs:
+      command: "pack"
+      versioningScheme: byBuildNumber
+      majorVersion: "$(Major)"
+      minorVersion: "$(Minor)"
+      patchVersion: "$(Patch)"
+      outputDir: "$(Build.ArtifactStagingDirectory)"
+      arguments: "--configuration $(BuildConfiguration)"
+
+  - task: NuGetCommand@2
+    inputs:
+      command: "push"
+      packagesToPush: "$(Build.ArtifactStagingDirectory)/**/*.nupkg;!$(Build.ArtifactStagingDirectory)/**/*.symbols.nupkg"
+      nuGetFeedType: "external"
+      publishVstsFeed: "data-crush"
+  
