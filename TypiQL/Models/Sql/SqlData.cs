@@ -378,7 +378,7 @@ namespace DataCrush.TypiQL.Models.Sql
                     values = new Dictionary<string, dynamic>();
                 }
                 linqFilters.Add(json, _helpers.BuildLinqFilter(t, keys));
-                filtersFromResults.Add(json, new Dictionary<string, dynamic>());
+                filtersFromResults.Add(json, null);
             }
 
             bool fail = false;
