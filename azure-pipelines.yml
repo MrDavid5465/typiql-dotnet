@@ -1,5 +1,3 @@
-pool: "Default"
-
 
 name: 0.0.$(Patch)
 
