@@ -43,5 +43,5 @@ steps:
       command: "push"
       packagesToPush: "$(Build.ArtifactStagingDirectory)/**/*.nupkg;!$(Build.ArtifactStagingDirectory)/**/*.symbols.nupkg"
       nuGetFeedType: "Internal"
-      publishVstsFeed: "data-crush-nuget@Local"
+      publishVstsFeed: "data-crush-nuget"
   
