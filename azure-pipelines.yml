@@ -35,7 +35,9 @@ steps:
       patchVersion: "$(Patch)"
       outputDir: "$(Build.ArtifactStagingDirectory)"
       arguments: "--configuration $(BuildConfiguration)"
-
+  - task: NuGetAuthenticate@0
+    inputs:
+      nuGetServiceConnections: 'data-crush-nuget'
   - task: NuGetCommand@2
     inputs:
       command: "push"
