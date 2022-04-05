@@ -351,11 +351,11 @@ namespace DataCrush.TypiQL.Models
                         Dictionary<string, dynamic> filter = _helpers.BuildQueryFilter(thisType, thisQuery.Arguments, query, context);
                         if (thisQuery.Type == "List")
                         {
-                            return Log(thisQuery, context, _helpers.GetMany(thisType, filter));
+                            return Log(thisQuery, context, _helpers.GetMany(context, thisType, filter));
                         }
                         else if (thisQuery.Type == "Get")
                         {
-                            return Log(thisQuery, context, _helpers.GetOne(thisType, filter));
+                            return Log(thisQuery, context, _helpers.GetOne(context, thisType, filter));
                         }
                         else
                         {
@@ -406,27 +406,27 @@ namespace DataCrush.TypiQL.Models
                         List<Dictionary<string, dynamic>> manyValues = _helpers.GetManyValues(thisType, thisQuery.Arguments, mutation, context, filter);
                         if (thisQuery.Type == "Add")
                         {
-                            return Log(thisQuery, context, _helpers.AddOne(thisType, values));
+                            return Log(thisQuery, context, _helpers.AddOne(context, thisType, values));
                         }
                         else if (thisQuery.Type == "Update")
                         {
-                            return Log(thisQuery, context, _helpers.UpdateOne(thisType, filter, values));
+                            return Log(thisQuery, context, _helpers.UpdateOne(context, thisType, filter, values));
                         }
                         else if (thisQuery.Type == "Remove")
                         {
-                            return Log(thisQuery, context, _helpers.RemoveOne(thisType, filter));
+                            return Log(thisQuery, context, _helpers.RemoveOne(context, thisType, filter));
                         }
                         else if (thisQuery.Type == "RemoveMany")
                         {
-                            return Log(thisQuery, context, _helpers.RemoveMany(thisType, filter));
+                            return Log(thisQuery, context, _helpers.RemoveMany(context, thisType, filter));
                         }
                         else if (thisQuery.Type == "AddMany")
                         {
-                            return Log(thisQuery, context, _helpers.AddMany(thisType, manyValues));
+                            return Log(thisQuery, context, _helpers.AddMany(context, thisType, manyValues));
                         }
                         else if (thisQuery.Type == "UpdateMany")
                         {
-                            return Log(thisQuery, context, _helpers.UpdateMany(thisType, filter, values));
+                            return Log(thisQuery, context, _helpers.UpdateMany(context, thisType, filter, values));
                         }
                         else
                         {
