@@ -142,7 +142,7 @@ namespace DataCrush.TypiQL.Models
             if (distinguishedNames.Count > 1)
             {
                 result = new List<string>();
-                foreach (Dictionary<string, dynamic> obj in GetMany(_data.typeDict["Group"], keys))
+                foreach (Dictionary<string, dynamic> obj in GetMany(null, _data.typeDict["Group"], keys))
                 {
                     if (obj.ContainsKey(field) && obj[field] != null)
                     {
@@ -152,7 +152,7 @@ namespace DataCrush.TypiQL.Models
             }
             else
             {
-                Dictionary<string, dynamic> obj = GetOne(_data.typeDict["Group"], keys);
+                Dictionary<string, dynamic> obj = GetOne(null, _data.typeDict["Group"], keys);
                 result = obj.ContainsKey(field) && obj[field] != null ? obj[field] : "";
             }
             return result;
@@ -164,13 +164,13 @@ namespace DataCrush.TypiQL.Models
                 && _data.typeDict.ContainsKey(resolvedTypeInfo.Name)
                 && thisColumn.Arguments.Count > 0)
             {
-                return GetMany(_data.typeDict[resolvedTypeInfo.Name], BuildFilter(thisType, fieldName, obj as Dictionary<string, dynamic>));
+                return GetMany(null, _data.typeDict[resolvedTypeInfo.Name], BuildFilter(thisType, fieldName, obj as Dictionary<string, dynamic>));
             }
             else if (!resolvedTypeInfo.TypeStack.Contains("array")
                 && _data.typeDict.ContainsKey(resolvedTypeInfo.Name)
                 && thisColumn.Arguments.Count > 0)
             {
-                return GetOne(_data.typeDict[resolvedTypeInfo.Name], BuildFilter(thisType, fieldName, obj as Dictionary<string, dynamic>));
+                return GetOne(null, _data.typeDict[resolvedTypeInfo.Name], BuildFilter(thisType, fieldName, obj as Dictionary<string, dynamic>));
             }
             else if (!obj.ContainsKey(thisColumn.DataName))
             {
@@ -283,7 +283,7 @@ namespace DataCrush.TypiQL.Models
                     foreach (Dictionary<string, dynamic> values in manyValues)
                     {
                         Dictionary<string, dynamic> allowedValues = new Dictionary<string, dynamic>();
-                        Dictionary<string, dynamic> obj = GetOne(type, filter);
+                        Dictionary<string, dynamic> obj = GetOne(context, type, filter);
                         foreach (KeyValuePair<string, dynamic> kv in values)
                         {
                             bool changeAllowed = true;
@@ -472,7 +472,7 @@ namespace DataCrush.TypiQL.Models
                 }
             }
             Dictionary<string, dynamic> allowedValues = new Dictionary<string, dynamic>();
-            Dictionary<string, dynamic> obj = GetOne(type, filter);
+            Dictionary<string, dynamic> obj = GetOne(context, type, filter);
             foreach (KeyValuePair<string, dynamic> kv in values)
             {
                 bool changeAllowed = true;
@@ -3667,7 +3667,7 @@ namespace DataCrush.TypiQL.Models
             }
             if (userType != null)
             {
-                foreach (var kv in GetOne(_data.typeDict["User"], new Dictionary<string, dynamic> { { _settings.UserCRUD.UserNameProperty, userName } }))
+                foreach (var kv in GetOne(null, _data.typeDict["User"], new Dictionary<string, dynamic> { { _settings.UserCRUD.UserNameProperty, userName } }))
                 {
 
                     if (userType == null)
@@ -3711,7 +3711,7 @@ namespace DataCrush.TypiQL.Models
             {
                 Dictionary<string, dynamic> userData = new Dictionary<string, dynamic>();
                 var userDataType = _data.GetTypesType("UserData").Result;
-                var UserData = GetOne(_data.typeDict["UserData"], new Dictionary<string, dynamic> { { "sid", user["objectSid"] } });
+                var UserData = GetOne(null, _data.typeDict["UserData"], new Dictionary<string, dynamic> { { "sid", user["objectSid"] } });
                 if (UserData != null)
                 {
                     foreach (var kv in UserData)
@@ -3791,7 +3791,7 @@ namespace DataCrush.TypiQL.Models
                 }
             });
         }
-        public List<dynamic> GetMany(Types type, Dictionary<string, dynamic> filter)
+        public List<dynamic> GetMany(IResolveFieldContext context, Types type, Dictionary<string, dynamic> filter)
         {
             List<dynamic> result = new List<dynamic>();
             switch (type.Type)
@@ -3803,7 +3803,7 @@ namespace DataCrush.TypiQL.Models
                     }
                 case "sql":
                     {
-                        result = _sqlData.GetRecords(type.Name, filter).Result;
+                        result = _sqlData.GetRecords(context, type.Name, filter).Result;
                         break;
                     }
                 case "ad":
@@ -3818,7 +3818,7 @@ namespace DataCrush.TypiQL.Models
             }
             return result;
         }
-        public Dictionary<string, dynamic> GetOne(Types type, Dictionary<string, dynamic> filter)
+        public Dictionary<string, dynamic> GetOne(IResolveFieldContext context, Types type, Dictionary<string, dynamic> filter)
         {
             Dictionary<string, dynamic> result = new Dictionary<string, dynamic>();
             switch (type.Type)
@@ -3830,7 +3830,7 @@ namespace DataCrush.TypiQL.Models
                     }
                 case "sql":
                     {
-                        result = _sqlData.GetRecord(type.Name, filter).Result;
+                        result = _sqlData.GetRecord(context, type.Name, filter).Result;
                         break;
                     }
                 case "ad":
@@ -3845,7 +3845,7 @@ namespace DataCrush.TypiQL.Models
             }
             return result;
         }
-        public Dictionary<string, dynamic> AddOne(Types type, Dictionary<string, dynamic> values)
+        public Dictionary<string, dynamic> AddOne(IResolveFieldContext context, Types type, Dictionary<string, dynamic> values)
         {
             Dictionary<string, dynamic> result = new Dictionary<string, dynamic>();
             switch (type.Type)
@@ -3857,7 +3857,7 @@ namespace DataCrush.TypiQL.Models
                     }
                 case "sql":
                     {
-                        result = _sqlData.AddRecord(type.Name, values).Result;
+                        result = _sqlData.AddRecord(context, type.Name, values).Result;
                         break;
                     }
                 case "ad":
@@ -3872,7 +3872,7 @@ namespace DataCrush.TypiQL.Models
             }
             return result;
         }
-        public List<dynamic> AddMany(Types type, List<Dictionary<string, dynamic>> manyValues)
+        public List<dynamic> AddMany(IResolveFieldContext context, Types type, List<Dictionary<string, dynamic>> manyValues)
         {
             switch (type.Type)
             {
@@ -3882,7 +3882,7 @@ namespace DataCrush.TypiQL.Models
                 default: return null;
             }
         }
-        public Dictionary<string, dynamic> UpdateOne(Types type, Dictionary<string, dynamic> filter, Dictionary<string, dynamic> update)
+        public Dictionary<string, dynamic> UpdateOne(IResolveFieldContext context, Types type, Dictionary<string, dynamic> filter, Dictionary<string, dynamic> update)
         {
             Dictionary<string, dynamic> result = new Dictionary<string, dynamic>();
             switch (type.Type)
@@ -3894,7 +3894,7 @@ namespace DataCrush.TypiQL.Models
                     }
                 case "sql":
                     {
-                        result = _sqlData.UpdateRecord(type.Name, filter, update).Result;
+                        result = _sqlData.UpdateRecord(context, type.Name, filter, update).Result;
                         break;
                     }
                 case "ad":
@@ -3909,7 +3909,7 @@ namespace DataCrush.TypiQL.Models
             }
             return result;
         }
-        public List<dynamic> UpdateMany(Types type, Dictionary<string, dynamic> filter, Dictionary<string, dynamic> update)
+        public List<dynamic> UpdateMany(IResolveFieldContext context, Types type, Dictionary<string, dynamic> filter, Dictionary<string, dynamic> update)
         {
             switch (type.Type)
             {
@@ -3919,7 +3919,7 @@ namespace DataCrush.TypiQL.Models
                 default: return null;
             }
         }
-        public Dictionary<string, dynamic> RemoveOne(Types type, Dictionary<string, dynamic> filter)
+        public Dictionary<string, dynamic> RemoveOne(IResolveFieldContext context, Types type, Dictionary<string, dynamic> filter)
         {
             Dictionary<string, dynamic> result = new Dictionary<string, dynamic>();
             switch (type.Type)
@@ -3931,7 +3931,7 @@ namespace DataCrush.TypiQL.Models
                     }
                 case "sql":
                     {
-                        result = _sqlData.RemoveRecord(type.Name, filter).Result;
+                        result = _sqlData.RemoveRecord(context, type.Name, filter).Result;
                         break;
                     }
                 case "ad":
@@ -3946,7 +3946,7 @@ namespace DataCrush.TypiQL.Models
             }
             return result;
         }
-        public List<dynamic> RemoveMany(Types type, Dictionary<string, dynamic> filter)
+        public List<dynamic> RemoveMany(IResolveFieldContext context, Types type, Dictionary<string, dynamic> filter)
         {
             switch (type.Type)
             {
