@@ -40,23 +40,24 @@ namespace DataCrush.TypiQL.Models.Sql
                 List<string> dataNames = new List<string>();
                 if (context == null)
                 {
-                    foreach(var field in context.SubFields)
-                    {
-                        Column column = model.Fields[field.Key];
-                        if (column.DataName != null && column.DataName != "")
+                    foreach(var column in model.Columns)
+                    {                        
+                        if (column.DataName != null && column.DataName != "" && column.ColumnType != "Aggregation")
                             dataNames.Add($"{column.DataName} AS '{column.DataName}'");
                     }
                 }
                 else
                 {
-                    foreach (var column in model.Columns)
+                    foreach (var field in context.SubFields)
                     {
+                        Column column = model.Fields[field.Key];
                         if (column.DataName != null && column.DataName != "")
                         {
                             var aggregations = new List<string> { "Count", "Sum", "Average", "Max", "Min" };
-                            if (aggregations.Contains(column.ColumnType))
+                            if (column.ColumnType == "Aggregation" && column.Arguments.Where(c => aggregations.Contains(c.Type)).Any())
                             {
-                                dataNames.Add($"{column.ColumnType}({column.DataName}) AS '{column.DataName}'");
+                                Argument aggregate = column.Arguments.Where(c => aggregations.Contains(c.Type)).FirstOrDefault();
+                                dataNames.Add($"{aggregate.Type}({aggregate.Value}) AS '{column.DataName}'");
                             }
                             else
                             {
