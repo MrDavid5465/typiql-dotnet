@@ -23,6 +23,7 @@ using MongoDB.Driver.GridFS;
 using System.Text.RegularExpressions;
 using LinqKit;
 using GraphQL.DataLoader;
+using TypiQL.Models;
 
 namespace DataCrush.TypiQL.Models
 {
@@ -1238,6 +1239,56 @@ namespace DataCrush.TypiQL.Models
             }
             return aDGroups.OrderBy(g => g.Name.ToString()).ToList();
         }
-        
+        public async Task<ConfigBackup> GetConfigBackup(ObjectId id)
+        {
+            return await _mongoContext.ConfigBackups.Find(b => b.Id == id).FirstOrDefaultAsync();
+        }
+        public async Task<List<ConfigBackup>> GetConfigBackups()
+        {
+            return await _mongoContext.ConfigBackups.Find(_ => true).ToListAsync();
+        }
+        public async Task<ConfigBackup> RemoveConfigBackup(ObjectId id)
+        {
+            return await _mongoContext.ConfigBackups.FindOneAndDeleteAsync(b => b.Id == id);
+        }
+        public async Task<ConfigBackup> BackupCurrentConfiguration(string name)
+        {
+            ConfigBackup backup = new ConfigBackup
+            {
+                Id = ObjectId.GenerateNewId(),
+                Name = name,
+                Connections = await GetConnections(),
+                Types = await GetTypes(),
+                Created = DateTime.Now,
+            };
+            await _mongoContext.ConfigBackups.InsertOneAsync(backup);
+            return backup;
+        }
+        public async Task<ConfigBackup> RestoreCurrentConfiguration(ObjectId id)
+        {
+            ConfigBackup restore = await _mongoContext.ConfigBackups.Find(b => b.Id == id).FirstOrDefaultAsync();
+            if (restore == null)
+            {
+                throw new InvalidDataException($"Config backup with id {id} does not exist");
+            }
+            
+            foreach (Connection connection in restore.Connections)
+            {
+                var filter = Builders<Connection>.Filter.Eq(c => c.Id, connection.Id);
+                await _mongoContext.Connections.InsertOneAsync(connection, options: new InsertOneOptions
+                {
+                    BypassDocumentValidation = true
+                });
+            }
+            foreach (Types type in restore.Types)
+            {                
+                await _mongoContext.Types.InsertOneAsync(type, options: new InsertOneOptions
+                {
+                    BypassDocumentValidation = true
+                });
+            }
+
+            return restore;
+        }
     }
 }

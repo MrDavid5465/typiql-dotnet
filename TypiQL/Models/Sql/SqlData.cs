@@ -102,13 +102,13 @@ namespace DataCrush.TypiQL.Models.Sql
                             {
                                 sort.Add(t.Model.Fields[field.Trim()].DataName);
                             }
-                            order = $"ORDER BY {string.Join(",", sort)} {(key.Key.Length > 2 ? key.Key.Split("_")[2] : "")}";
+                            order = $"ORDER BY {string.Join(",", sort)} {(key.Key.Split("_").Length > 2 ? key.Key.Split("_")[2] : "")}";
                         }
                         options.Add($"{order} OFFSET @_start ROWS");
                         values.Add("_start", (int)key.Value);
                         if (keys.ContainsKey("_limit") && keys["_limit"] != null)
                         {
-                            options.Add($"FETCH NEXT @_limit ROWS");
+                            options.Add($"FETCH NEXT @_limit ROWS ONLY");
                             values.Add("_limit", (int)keys["_limit"]);
                         }
                     }

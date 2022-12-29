@@ -905,7 +905,7 @@ namespace DataCrush.TypiQL.Models.Mongo
             }
             UpdateDefinition<BsonDocument> updates = Builders<BsonDocument>.Update.Combine(updateSet.ToArray());
             await _connections[t.Connection].GetCollection<BsonDocument>(t.Model.Name).UpdateManyAsync(filter, updates, new UpdateOptions { IsUpsert = upsert });
-            return _data._subscriptionRepos[t.Name].ChangeEntity(t, "RemoveMany", await GetDocuments(collection, keys)); 
+            return _data._subscriptionRepos[t.Name].ChangeEntity(t, "UpdateMany", await GetDocuments(collection, keys)); 
         }
         public async Task<Dictionary<string, dynamic>> AddDocument(string collection, Dictionary<string, dynamic> values)
         {
