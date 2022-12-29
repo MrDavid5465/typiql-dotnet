@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using TypiQL.Models;
 
 namespace DataCrush.TypiQL.Models.Mongo
 {
@@ -56,6 +57,14 @@ namespace DataCrush.TypiQL.Models.Mongo
             {
                 return _configDataBase.GetCollection<LoggingContext>("logs");
             }
+        }
+        public IMongoCollection<ConfigBackup> ConfigBackups
+        {
+            get
+            {
+                return _configDataBase.GetCollection<ConfigBackup>("configBackups");
+            }
+
         }
     }
 }

@@ -3643,7 +3643,7 @@ namespace DataCrush.TypiQL.Models
             }
             else if (arg.StartsWith("@user") && Regex.IsMatch(arg.Split(".")[0], "([\\(\\)])"))
             {
-                userName = Regex.Match(arg.Split(".")[0], "(?<=\\()(.*?)(?=\\))").Value;
+                userName = arg.Split(")")[0].Substring(6);
             }
             if (_settings.UserCRUD.GetUser != null)
             {
@@ -3711,7 +3711,7 @@ namespace DataCrush.TypiQL.Models
             {
                 Dictionary<string, dynamic> userData = new Dictionary<string, dynamic>();
                 var userDataType = _data.GetTypesType("UserData").Result;
-                var UserData = GetOne(null, _data.typeDict["UserData"], new Dictionary<string, dynamic> { { "sid", user["objectSid"] } });
+                var UserData = GetOne(null, _data.typeDict["UserData"], new Dictionary<string, dynamic> { { "sid", user["sid"] } });
                 if (UserData != null)
                 {
                     foreach (var kv in UserData)

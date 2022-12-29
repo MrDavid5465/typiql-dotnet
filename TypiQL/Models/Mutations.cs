@@ -2,17 +2,19 @@
 using GraphQL.Server.Authorization.AspNetCore;
 using GraphQL.Types;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using MongoDB.Bson;
 using System.Collections.Generic;
 using System.Linq;
+using TypiQL.Models;
 
 namespace DataCrush.TypiQL.Models
 {
 
     public class Mutations : ObjectGraphType
     {
-        public Mutations(TypiQLSettings settings, ConfigData data, IHttpContextAccessor httpContext)
+        public Mutations(TypiQLSettings settings, ConfigData data, IHttpContextAccessor httpContext, IHostApplicationLifetime lifetime)
         {
             Name = "Mutation";
             Field<ConnectionType>(
@@ -156,6 +158,51 @@ namespace DataCrush.TypiQL.Models
                     b.Add("name", context.GetArgument<string>("name"));
                     b.Add("type", context.GetArgument<string>("type"));
                     return data.EmptyBucket(new ObjectId(context.GetArgument<string>("id")));
+                }
+            ).AuthorizeWith(settings.TypiQLAdminRole);
+            Field<BooleanGraphType>(
+                "restartTypiQL",
+                resolve: context =>
+                {
+                    lifetime.StopApplication();                       
+                    return true;
+                }
+            ).AuthorizeWith(settings.TypiQLAdminRole);
+            Field<ListGraphType<ConfigBackupType>>(
+                "getTypiQLConfigurationBackups",
+                resolve: context =>
+                {
+                    return data.GetConfigBackups();
+                }
+            ).AuthorizeWith(settings.TypiQLAdminRole);
+            Field<ConfigBackupType>(
+                "backupTypiQLConfiguration",
+                arguments: new QueryArguments(
+                    new QueryArgument<NonNullGraphType<StringGraphType>> { Name = "name" }
+                ),
+                resolve: context =>
+                {
+                    return data.BackupCurrentConfiguration(context.GetArgument<string>("name"));
+                }
+            ).AuthorizeWith(settings.TypiQLAdminRole);
+            Field<ConfigBackupType>(
+                "getTypiQLConfiguration",
+                arguments: new QueryArguments(
+                    new QueryArgument<NonNullGraphType<StringGraphType>> { Name = "id" }
+                ),
+                resolve: context =>
+                {
+                    return data.GetConfigBackup(new ObjectId(context.GetArgument<string>("id")));
+                }
+            ).AuthorizeWith(settings.TypiQLAdminRole);
+            Field<ConfigBackupType>(
+                "restoreTypiQLConfiguration",
+                arguments: new QueryArguments(
+                    new QueryArgument<NonNullGraphType<StringGraphType>> { Name = "id" }
+                ),
+                resolve: context =>
+                {
+                    return data.RestoreCurrentConfiguration(new ObjectId(context.GetArgument<string>("id")));
                 }
             ).AuthorizeWith(settings.TypiQLAdminRole);
             Field<BooleanGraphType>(

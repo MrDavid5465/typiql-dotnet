@@ -8,6 +8,7 @@ using GraphQL.Server.Authorization.AspNetCore;
 using GraphQL.Types;
 using GraphQL.Utilities;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -57,7 +58,8 @@ namespace DataCrush.TypiQL.Models
             IServiceProvider provider,
             IHttpContextAccessor accessor,            
             ConfigData data,
-            TypiQLSettings settings
+            TypiQLSettings settings,
+            IHostApplicationLifetime lifetime
             ) : base(provider)
         {
             _httpContext = accessor;
@@ -72,8 +74,8 @@ namespace DataCrush.TypiQL.Models
                 cr.GetFieldResolver();
             }
 
-            Query = new Queries(settings, data, accessor, provider);
-            Mutation = new Mutations(settings, data, accessor);
+            Query = new Queries(settings, data, accessor, provider, lifetime);
+            Mutation = new Mutations(settings, data, accessor, lifetime);
             Subscription = new Subscriptions(settings, data, _mongoContext);
 
             GenerateSchema();

@@ -5,6 +5,7 @@ using GraphQL;
 using GraphQL.Server.Authorization.AspNetCore;
 using GraphQL.Types;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using MongoDB.Bson;
 using System;
@@ -18,7 +19,7 @@ namespace DataCrush.TypiQL.Models
     public class Queries : ObjectGraphType
     {
         private readonly TypiQLSettings _settings;
-        public Queries(TypiQLSettings settings, ConfigData data, IHttpContextAccessor httpContext, IServiceProvider provider)
+        public Queries(TypiQLSettings settings, ConfigData data, IHttpContextAccessor httpContext, IServiceProvider provider, IHostApplicationLifetime lifetime)
         {
             _settings = settings;
             Name = "Query";
@@ -42,7 +43,7 @@ namespace DataCrush.TypiQL.Models
                 {
                     try
                     {
-                        var schema = new OrgSchema(provider, httpContext, data, settings);
+                        var schema = new OrgSchema(provider, httpContext, data, settings, lifetime);
                         return null;
                     }
                     catch (Exception e)
