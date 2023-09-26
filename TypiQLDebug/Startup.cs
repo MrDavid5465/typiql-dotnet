@@ -82,8 +82,8 @@ namespace TypiQLDebug
                     ValidateIssuer = true,
                     ValidateAudience = true,
                     ValidateLifetime = true,
-                    ValidAudience = "data-crush.com",
-                    ValidIssuer = "data-crush.com",
+                    ValidAudience = "davidallanscott.ca",
+                    ValidIssuer = "davidallanscott.ca",
                 };
                 x.Events = new JwtBearerEvents
                 {

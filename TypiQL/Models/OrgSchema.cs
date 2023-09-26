@@ -146,6 +146,7 @@ namespace DataCrush.TypiQL.Models
         {
             ReloadTypeDict();
             ISchema userSchema = BuildSchemaFromSDL(_types);
+            RegisterType<PageInfoType>();
             foreach (ObjectGraphType type in userSchema.AllTypes.Where(t => t is ObjectGraphType))
             {
                 if (_typeDict.ContainsKey(type.Name))
@@ -367,6 +368,25 @@ namespace DataCrush.TypiQL.Models
                     });
                 }
                 Query.AddField(query);
+                if (thisQuery.Type == "List")
+                {
+                    FieldType pagedQuery = new FieldType();
+                    pagedQuery.Name = $"{query.Name}PageInfo";
+                    pagedQuery.Arguments = query.Arguments;
+                    pagedQuery.Type = typeof(PageInfoType);
+                    pagedQuery.Description = $"Page Information for a paged result from Query: {query.Name}";
+                    pagedQuery.Resolver = new FuncFieldResolver<PageInfo>(context =>
+                    {
+                        if (!Allowed(query.ResolvedType.GetNamedType().Name, query.Name, "query", true))
+                        {
+                            Log(thisQuery, context, "Access Denied");
+                            throw new UnauthorizedAccessException();
+                        }
+                        Dictionary<string, dynamic> filter = _helpers.BuildQueryFilter(thisType, thisQuery.Arguments, query, context);
+                        return Log(thisQuery, context, _helpers.GetManyPageInfo(context, thisType, filter));
+                    });
+                    Query.AddField(pagedQuery);
+                }
 
             }
             foreach (FieldType mutation in userSchema.Mutation.Fields)

@@ -19,6 +19,7 @@ using System.Security.Claims;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using TypiQL.Models;
 
 namespace DataCrush.TypiQL.Models
 {
@@ -3791,9 +3792,9 @@ namespace DataCrush.TypiQL.Models
                 }
             });
         }
-        public List<dynamic> GetMany(IResolveFieldContext context, Types type, Dictionary<string, dynamic> filter)
+        public dynamic GetMany(IResolveFieldContext context, Types type, Dictionary<string, dynamic> filter)
         {
-            List<dynamic> result = new List<dynamic>();
+            dynamic result = new PageInfo();
             switch (type.Type)
             {
                 case "mongo":
@@ -3809,6 +3810,33 @@ namespace DataCrush.TypiQL.Models
                 case "ad":
                     {
                         result = _aDData.GetADObjects(type.Name, filter);
+                        break;
+                    }
+                default:
+                    {
+                        break;
+                    };
+            }
+            return result;
+        }
+        public PageInfo GetManyPageInfo(IResolveFieldContext context, Types type, Dictionary<string, dynamic> filter)
+        {
+            dynamic result = new PageInfo();
+            switch (type.Type)
+            {
+                case "mongo":
+                    {
+                        result = _mongoData.GetDocumentsPageInfo(type.Name, filter).Result;
+                        break;
+                    }
+                case "sql":
+                    {
+                        result = _sqlData.GetRecordsPageInfo(context, type.Name, filter).Result;
+                        break;
+                    }
+                case "ad":
+                    {
+                        result = _aDData.GetADObjectsPageInfo(type.Name, filter);
                         break;
                     }
                 default:

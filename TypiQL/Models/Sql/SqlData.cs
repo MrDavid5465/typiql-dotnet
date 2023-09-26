@@ -11,6 +11,7 @@ using LinqKit;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using Newtonsoft.Json;
+using TypiQL.Models;
 
 namespace DataCrush.TypiQL.Models.Sql
 {
@@ -510,6 +511,22 @@ namespace DataCrush.TypiQL.Models.Sql
                     result.Add(new Dictionary<string, dynamic>(row));
                 }
                 return result;
+            }
+        }
+        public async Task<PageInfo> GetRecordsPageInfo(IResolveFieldContext context, string type, Dictionary<string, dynamic> keys)
+        {
+            throw new NotImplementedException();
+            Types t = _data.typeDict[type];
+            Dictionary<string, dynamic> values = new Dictionary<string, dynamic>();
+            string query = BuildQuery(context, t, keys, ref values);
+            using (SqlConnection connection = new SqlConnection(_connections[t.Connection].ConnectionString))
+            {
+                var result = new List<dynamic>();
+                foreach (IDictionary<string, dynamic> row in await connection.QueryAsync(query, values))
+                {
+                    result.Add(new Dictionary<string, dynamic>(row));
+                }
+                return new PageInfo();
             }
         }
         public async Task<dynamic> CountRecords(IResolveFieldContext context, string type, Dictionary<string, dynamic> keys)

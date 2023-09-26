@@ -17,6 +17,7 @@ using System.IO;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
+using TypiQL.Models;
 
 namespace DataCrush.TypiQL.Models.Mongo
 {
@@ -616,7 +617,7 @@ namespace DataCrush.TypiQL.Models.Mongo
                 .Sort(Builders<BsonDocument>.Sort.Combine(sort))
                 .Skip(skip)
                 .Limit(limit)
-                .ToListAsync());
+                .ToListAsync());   
             if (results == null)
             {
                 return new List<dynamic>();
@@ -626,6 +627,31 @@ namespace DataCrush.TypiQL.Models.Mongo
                 return results;
             }
         }
+        public async Task<PageInfo> GetDocumentsPageInfo(string collection, Dictionary<string, dynamic> keys)
+        {
+            Types t = _data.typeDict[collection];
+
+            List<SortDefinition<BsonDocument>> sort = new List<SortDefinition<BsonDocument>>();
+            int skip = 0;
+            int limit = 0;
+            bool upsert = false;
+            FilterDefinition<BsonDocument> filter = BuildFilter(t, keys, ref skip, ref limit, sort, ref upsert);
+            var results = Results(await _connections[t.Connection]
+                .GetCollection<BsonDocument>(t.Model.Name)
+                .Find(filter)
+                .Sort(Builders<BsonDocument>.Sort.Combine(sort))
+                .Skip(skip)
+                .Limit(limit)
+                .ToListAsync());
+            long count = await _connections[t.Connection].GetCollection<BsonDocument>(t.Model.Name).CountDocumentsAsync(filter);
+            return new PageInfo
+            {
+                TotalResults = (int)count,
+                Page = limit > 0 ? skip / limit + 1 : 1,
+                TotalPages = (int)Math.Ceiling((double)count / limit) > 0 ? (int)Math.Ceiling((double)count / limit) : 1
+            };
+        }
+
         public async Task<Dictionary<string, dynamic>> BatchDocument(string type, IEnumerable<string> keySets, Types parentType, string parentField)
         {
             Types t = _data.typeDict[type];
