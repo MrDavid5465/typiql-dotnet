@@ -37,7 +37,7 @@ steps:
       arguments: "--configuration $(BuildConfiguration)"
   - task: NuGetAuthenticate@1
     inputs:
-      nuGetServiceConnections: 'data-crush-nuget'
+      nuGetServiceConnections: 'davidallanscott-nuget'
   
   - task: NuGetCommand@2
     inputs:
