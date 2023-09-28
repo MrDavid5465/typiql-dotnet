@@ -37,12 +37,12 @@ steps:
       arguments: "--configuration $(BuildConfiguration)"
   - task: NuGetAuthenticate@1
     inputs:
-      nuGetServiceConnections: 'davidallanscott-nuget'
+      nuGetServiceConnections: 'das-nuget'
   
   - task: NuGetCommand@2
     inputs:
       command: "push"
       packagesToPush: "$(Build.ArtifactStagingDirectory)/**/*.nupkg;!$(Build.ArtifactStagingDirectory)/**/*.symbols.nupkg"
       nuGetFeedType: "Internal"
-      publishVstsFeed: "davidallanscott-nuget"
+      publishVstsFeed: "das-nuget"
   
