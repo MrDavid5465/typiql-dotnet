@@ -3,7 +3,7 @@ name: $(Version)
 
 variables:
   buildConfiguration: "Release"
-  Minor: 0
+  Minor: 1
   patch: $[counter(variables['Minor'], 0)]
   Version: 0.$(Minor).$(Patch)
 
@@ -37,12 +37,12 @@ steps:
       arguments: "--configuration $(BuildConfiguration)"
   - task: NuGetAuthenticate@1
     inputs:
-      nuGetServiceConnections: 'data-crush-nuget'
+      nuGetServiceConnections: 'das-nuget'
   
   - task: NuGetCommand@2
     inputs:
       command: "push"
       packagesToPush: "$(Build.ArtifactStagingDirectory)/**/*.nupkg;!$(Build.ArtifactStagingDirectory)/**/*.symbols.nupkg"
       nuGetFeedType: "Internal"
-      publishVstsFeed: "data-crush-nuget"
+      publishVstsFeed: "das-nuget"
   
