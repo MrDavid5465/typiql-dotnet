@@ -215,7 +215,7 @@ namespace DataCrush.TypiQL.Models
                     return data.ListBucket(context.GetArgument<string>("name"), context.GetArgument<string>("type"), data.GetUserName());
                 }
             ).AuthorizeWith(_settings.TypiQLAdminRole);
-            Field<ListGraphType<TypiQLRoleType>>(
+            Field<ListGraphType<ADGroupType>>(
                 "getGroups",
                 resolve: context =>
                 {

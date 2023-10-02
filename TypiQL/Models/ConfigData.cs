@@ -1206,7 +1206,7 @@ namespace DataCrush.TypiQL.Models
         {
             return _settings.Roles.FindAll(r => _httpContext.HttpContext.User.IsInRole(r.Value));
         }
-        public async Task<List<TypiQLRole>> GetGroups()
+        public async Task<List<ADGroup>> GetGroups()
         {
             Server server = await GetServer();
             Connection connection = GetConnections("ad").Result.FirstOrDefault();
@@ -1237,12 +1237,7 @@ namespace DataCrush.TypiQL.Models
                     aDGroups.Add(new ADGroup(g));
                 }
             }
-            List<TypiQLRole> roles = new List<TypiQLRole>();
-            foreach (ADGroup aDGroup in aDGroups)
-            {
-                roles.Add(new TypiQLRole(aDGroup.Name, aDGroup.Name));
-            }
-            return roles.OrderBy(g => g.Name.ToString()).ToList();
+            return aDGroups.OrderBy(g => g.Name.ToString()).ToList();
         }
         public async Task<ConfigBackup> GetConfigBackup(ObjectId id)
         {
