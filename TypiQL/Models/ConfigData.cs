@@ -95,7 +95,14 @@ namespace DataCrush.TypiQL.Models
         }
         public string GetUserName()
         {
-            return _httpContext.HttpContext.User.Identity.Name;
+            if (_settings.AuthenticationType == "Windows")
+            {
+                return _httpContext.HttpContext.User.Identity.Name.Split("\\")[1];
+            }
+            else
+            {
+                return _httpContext.HttpContext.User.Identity.Name;
+            }
         }
         public async Task<Connection> GetConnection(string name)
         {

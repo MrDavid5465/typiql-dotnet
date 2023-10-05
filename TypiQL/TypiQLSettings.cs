@@ -11,6 +11,7 @@ namespace DataCrush.TypiQL
         public string TypiQLDatabase { get; set; }
         public string TypiQLAdminRole { get; set; }
         public List<TypiQLRole> Roles { get; set; }
+        public string AuthenticationType { get; set; }
         public List<string> RoleNames
         {
             get

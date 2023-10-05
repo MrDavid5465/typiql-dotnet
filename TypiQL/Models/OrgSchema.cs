@@ -122,7 +122,7 @@ namespace DataCrush.TypiQL.Models
                     DateTime = DateTime.UtcNow,
                     Details = new Dictionary<string, dynamic>
                         {
-                            { "user", _httpContext.HttpContext.User.Identity.Name },
+                            { "user", _data.GetUserName() },
                             { "operation", query.ColumnType },
                             { "type", context.ReturnType.Name },
                             { context.ParentType.Name, context.FieldName },

@@ -3640,7 +3640,7 @@ namespace DataCrush.TypiQL.Models
             var userName = "";
             if (arg.StartsWith("@currentUser"))
             {
-                userName = _httpContext.HttpContext.User.Identity.Name;
+                userName = _data.GetUserName();
             }
             else if (arg.StartsWith("@user") && Regex.IsMatch(arg.Split(".")[0], "([\\(\\)])"))
             {
