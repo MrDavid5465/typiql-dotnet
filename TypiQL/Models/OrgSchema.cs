@@ -25,7 +25,7 @@ namespace DataCrush.TypiQL.Models
 {
     public class BaseSchema : Schema
     {
-        public BaseSchema(IServiceProvider provider, Queries queries, Mutations mutations, Subscriptions subscriptions) : base(provider) 
+        public BaseSchema(IServiceProvider provider, Queries queries, Mutations mutations, Subscriptions subscriptions) : base(provider)
         {
             Query = queries;
             Mutation = mutations;
@@ -56,7 +56,7 @@ namespace DataCrush.TypiQL.Models
 
         public OrgSchema(
             IServiceProvider provider,
-            IHttpContextAccessor accessor,            
+            IHttpContextAccessor accessor,
             ConfigData data,
             TypiQLSettings settings,
             IHostApplicationLifetime lifetime
@@ -68,7 +68,7 @@ namespace DataCrush.TypiQL.Models
             _mongoContext = new TypiQLMongoContext(settings);
             _helpers = provider.GetRequiredService<SchemaHelpers>();
             _helpers.Configure(provider.GetRequiredService<MongoData>(), provider.GetRequiredService<SqlData>(), provider.GetRequiredService<ADData>());
-            
+
             foreach (CustomResolver cr in _settings.Resolvers)
             {
                 cr.GetFieldResolver();
@@ -133,12 +133,12 @@ namespace DataCrush.TypiQL.Models
                 if (_settings.Logger != null)
                 {
                     _settings.Logger.Invoke(log);
-                }                    
+                }
                 else
                 {
                     LoggingContext _ = _data.AddLog(log).Result;
                 }
-                    
+
             }
             return result;
         }
@@ -177,28 +177,46 @@ namespace DataCrush.TypiQL.Models
                                 && _typeDict.ContainsKey(resolvedTypeInfo.Name)
                                 && thisColumn.Arguments.Count > 0)
                             {
-                                var loader = _helpers.BatchMany(
-                                    _typeDict[resolvedTypeInfo.Name],
-                                    $"Get{resolvedTypeInfo.Name}By{thisType.Name}{string.Join("-", thisColumn.Arguments.Select(a => a.Key).ToArray())}",
-                                    thisType,
-                                    field.Name
-                                    );
+                                if (_typeDict[resolvedTypeInfo.Name].Type == "ad")
+                                {
 
-                                var json = JsonConvert.SerializeObject(_helpers.BuildFilter(thisType, field.Name, obj as Dictionary<string, dynamic>));
-                                return Log(thisColumn, context, loader.LoadAsync(json));
+                                    Dictionary<string, dynamic> filter = _helpers.BuildFilter(thisType, field.Name, obj as Dictionary<string, dynamic>);
+                                    return Log(thisColumn, context, _helpers.GetMany(context, _typeDict[resolvedTypeInfo.Name], filter));
+                                }
+                                else
+                                {
+                                    var loader = _helpers.BatchMany(
+                                        _typeDict[resolvedTypeInfo.Name],
+                                        $"Get{resolvedTypeInfo.Name}By{thisType.Name}{string.Join("-", thisColumn.Arguments.Select(a => a.Key).ToArray())}",
+                                        thisType,
+                                        field.Name
+                                        );
+
+                                    var json = JsonConvert.SerializeObject(_helpers.BuildFilter(thisType, field.Name, obj as Dictionary<string, dynamic>));
+                                    return Log(thisColumn, context, loader.LoadAsync(json));
+                                }
+
                             }
                             else if (!resolvedTypeInfo.TypeStack.Contains("array")
                                 && _typeDict.ContainsKey(resolvedTypeInfo.Name)
                                 && thisColumn.Arguments.Count > 0)
                             {
-                                var loader = _helpers.BatchOne(
+                                if (_typeDict[resolvedTypeInfo.Name].Type == "ad")
+                                {
+                                    Dictionary<string, dynamic> filter = _helpers.BuildFilter(thisType, field.Name, obj as Dictionary<string, dynamic>);
+                                    return Log(thisColumn, context, _helpers.GetOne(context, _typeDict[resolvedTypeInfo.Name], filter));
+                                }
+                                else
+                                {
+                                    var loader = _helpers.BatchOne(
                                     _typeDict[resolvedTypeInfo.Name],
                                     $"Get{resolvedTypeInfo.Name}By{thisType.Name}{string.Join("-", thisColumn.Arguments.Select(a => a.Key).ToArray())}",
                                     thisType,
                                     field.Name
                                     );
-                                var json = JsonConvert.SerializeObject(_helpers.BuildFilter(thisType, field.Name, obj as Dictionary<string, dynamic>));
-                                return Log(thisColumn, context, loader.LoadAsync(json));
+                                    var json = JsonConvert.SerializeObject(_helpers.BuildFilter(thisType, field.Name, obj as Dictionary<string, dynamic>));
+                                    return Log(thisColumn, context, loader.LoadAsync(json));
+                                }
                             }
                             else if (!obj.ContainsKey(thisColumn.DataName))
                             {
@@ -461,7 +479,7 @@ namespace DataCrush.TypiQL.Models
             }
 
         }
-        
+
         public ISchema BuildSchemaFromSDL(List<Types> types)
         {
             List<string> typeSchema = new List<string>();
@@ -509,7 +527,7 @@ namespace DataCrush.TypiQL.Models
             }
             return allowed;
         }
-        
+
         public List<QueryArgument> FilterArgs(Types type, FieldType query, Query thisQuery, ISchema schema)
         {
             //TODO ADD DESCRIPTIONS TO ALL THESE HERE ARGUMENTS

@@ -3756,7 +3756,7 @@ namespace DataCrush.TypiQL.Models
                         }
                     //case "ad":
                     //    {
-                    //        result = _adData.BatchADObject(type.Name, filter);
+                    //        return _aDData.GetADObject(type.Name, filter);
                     //        break;
                     //    }
                     default:
@@ -3782,7 +3782,7 @@ namespace DataCrush.TypiQL.Models
                         }
                     //case "ad":
                     //    {
-                    //        result = _adData.GetADObjects(type.Name, filter);
+                    //        return _aDData.GetADObjects(type.Name, filter);
                     //        break;
                     //    }
                     default:
