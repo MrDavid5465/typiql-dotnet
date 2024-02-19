@@ -3706,7 +3706,7 @@ namespace DataCrush.TypiQL.Models
             }
             else if (arg.Split(".")[1] == "groups")
             {
-                return _httpContext.HttpContext.User.Claims.Where(c => c.Type == ClaimTypes.Role).ToList();
+                return _httpContext.HttpContext.User.Claims.Where(c => c.Type == ClaimTypes.Role).Select(r => r.Value).ToList();
             }
             else
             {
@@ -3799,7 +3799,7 @@ namespace DataCrush.TypiQL.Models
             {
                 case "mongo":
                     {
-                        result = _mongoData.GetDocuments(type.Name, filter).Result;
+                        result = _mongoData.AggregateDocuments(type.Name, filter).Result;
                         break;
                     }
                 case "sql":
@@ -3853,7 +3853,7 @@ namespace DataCrush.TypiQL.Models
             {
                 case "mongo":
                     {
-                        result = _mongoData.GetDocument(type.Name, filter).Result;
+                        result = _mongoData.AggregateDocument(type.Name, filter).Result;
                         break;
                     }
                 case "sql":

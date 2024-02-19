@@ -175,7 +175,7 @@ namespace DataCrush.TypiQL.Models
                             obj = new Dictionary<string, dynamic>(obj);
                             if (resolvedTypeInfo.TypeStack.Contains("array")
                                 && _typeDict.ContainsKey(resolvedTypeInfo.Name)
-                                && thisColumn.Arguments.Count > 0)
+                                && thisColumn.Arguments.Count > 0 && thisColumn.DataName == "")
                             {
                                 if (_typeDict[resolvedTypeInfo.Name].Type == "ad")
                                 {
@@ -199,7 +199,7 @@ namespace DataCrush.TypiQL.Models
                             }
                             else if (!resolvedTypeInfo.TypeStack.Contains("array")
                                 && _typeDict.ContainsKey(resolvedTypeInfo.Name)
-                                && thisColumn.Arguments.Count > 0)
+                                && thisColumn.Arguments.Count > 0 && thisColumn.DataName == "")
                             {
                                 if (_typeDict[resolvedTypeInfo.Name].Type == "ad")
                                 {
@@ -218,7 +218,7 @@ namespace DataCrush.TypiQL.Models
                                     return Log(thisColumn, context, loader.LoadAsync(json));
                                 }
                             }
-                            else if (!obj.ContainsKey(thisColumn.DataName))
+                            else if (thisColumn.DataName != "" && !obj.ContainsKey(thisColumn.DataName))
                             {
                                 Log(thisColumn, context, $"{thisColumn.DataName} not found in parent");
                                 return null;
