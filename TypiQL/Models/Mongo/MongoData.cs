@@ -1357,7 +1357,7 @@ namespace DataCrush.TypiQL.Models.Mongo
                 .Match(filter);
             foreach (var field in t.Model.Columns)
             {
-                if (field.Arguments.Count() > 0)
+                if (field.Arguments.Count() > 0 && field.DataName != "")
                 {
                     if (field.ColumnType == "Object" || field.ColumnType == "List")
                     {
@@ -1446,7 +1446,7 @@ namespace DataCrush.TypiQL.Models.Mongo
                 .Match(filter);
             foreach (var field in t.Model.Columns)
             {
-                if (field.Arguments.Count() > 0)
+                if (field.Arguments.Count() > 0 && field.DataName != "")
                 {
                     if (field.ColumnType == "Object" || field.ColumnType == "List")
                     {
