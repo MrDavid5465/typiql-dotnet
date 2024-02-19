@@ -97,7 +97,10 @@ namespace DataCrush.TypiQL.Models.Mongo
                 }
                 else if (t.Model.Fields.ContainsKey(key.Key.Split("_")[0]) && t.Model.Fields[key.Key.Split("_")[0]].DataName == "_id")
                 {
-                    value = new BsonDocument("$toObjectId", $"$${key.Key}");
+                    value = new BsonDocument("$convert", new BsonDocument()
+                        .Add("input", $"$${key.Key}")
+                        .Add("to", "objectId")
+                        .Add("onError", ""));
                 }
                 else
                 {
@@ -239,7 +242,10 @@ namespace DataCrush.TypiQL.Models.Mongo
                     }
                     else if (t.Model.Fields.ContainsKey(key.Key.Split("_")[1]) && t.Model.Fields[key.Key.Split("_")[1]].DataName == "_id")
                     {
-                        value = new BsonDocument("$toObjectId", $"$${key.Key}");
+                        value = new BsonDocument("$convert", new BsonDocument()
+                        .Add("input", $"$${key.Key}")
+                        .Add("to", "objectId")
+                        .Add("onError", ""));
                     }
                     else
                     {
