@@ -5,6 +5,7 @@ using DataCrush.TypiQL.Models.Sql;
 using GraphQL;
 using GraphQL.DataLoader;
 using GraphQL.Server;
+using GraphQL.Server.Transports.AspNetCore;
 using GraphQL.Server.Ui.GraphiQL;
 using GraphQL.Types;
 using Microsoft.AspNetCore.Authorization;
@@ -14,6 +15,7 @@ using Microsoft.Extensions.DependencyInjection;
 using MongoDB.Driver;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -23,7 +25,7 @@ namespace DataCrush.TypiQL
 {
     public static class TypiQLStartupExtensions
     {
-        public static IServiceCollection AddTypiQL(this IServiceCollection services, List<TypiQLRole> roles)
+        public static IServiceCollection AddTypiQL(this IServiceCollection services)
         {
             services.AddHttpContextAccessor()
             .AddSingleton<IDataLoaderContextAccessor, DataLoaderContextAccessor>()
@@ -39,22 +41,33 @@ namespace DataCrush.TypiQL
             .AddSingleton<ADData>()
             .AddSingleton<Queries>()
             .AddSingleton<Mutations>()
+            .AddSingleton<GraphQLMiddleware>()
             .AddSingleton<Subscriptions>()
-            .AddSingleton<IDocumentExecuter, DocumentExecuter>(sp => new DocumentExecuter { })
-            .AddGraphQL(_ =>
-            {
-                _.EnableMetrics = false;
-            })
-            .AddGraphQLAuthorization(options => {
-                foreach (TypiQLRole role in roles)
+            .AddGraphQL(b => {
+                b.AddUserContextBuilder(httpContext => new GraphQLUserContext { User = httpContext.User });
+                b.AddSystemTextJson();
+
+                try
                 {
-                    options.AddPolicy(role.Name, role.Builder);
+                    b.AddAutoSchema<OrgSchema>();
                 }
+                catch (Exception ex)
+                {
+                    b.AddAutoSchema<BaseSchema>();
+                }
+                b.AddAuthorizationRule();
             })
-            .AddSystemTextJson(deserializerSettings => { }, serializerSettings => { })
-            .AddWebSockets()
-            .AddDataLoader()
-            .AddGraphTypes(typeof(BaseSchema));
+            .AddSingleton(new GraphQLSettings
+            {
+                Path = "/graphql",
+                BuildUserContext = ctx => new GraphQLUserContext
+                {
+                    User = ctx.User
+                },
+                EnableMetrics = true
+            });
+
+            
             try
             {
                 services.AddSingleton<ISchema, OrgSchema>();
@@ -65,21 +78,30 @@ namespace DataCrush.TypiQL
             }
             return services;
         }
-        public static IApplicationBuilder UseTypiQL(this IApplicationBuilder app)
+        public static IApplicationBuilder UseTypiQL(this IApplicationBuilder app, List<TypiQLRole> roles)
         {
             app.UseWebSockets();
-            app.UseGraphQLWebSockets<ISchema>("/graphql");
-            //app.UseGraphQL<ISchema, TypiQLMiddleware<ISchema>>("/graphql");
-            app.UseMiddleware<GraphQLMiddleware>(new GraphQLSettings
+            var options = new GraphQLHttpMiddlewareOptions()
             {
-                Path = "/graphql",
-                BuildUserContext = ctx => new GraphQLUserContext
-                {
-                    User = ctx.User
-                },
-                EnableMetrics = true
-            });
-            app.UseGraphiQLServer(new GraphiQLOptions { GraphQLEndPoint = "/typiql/graphql"});
+                AuthorizationRequired = true,
+            };
+            foreach (TypiQLRole role in roles)
+            {
+                options.AuthorizedRoles.Add(role.Name);
+            }
+
+            app.UseGraphQL<TypiQLMiddleware<ISchema>>("/graphql", options);
+                //config =>
+            //{
+            //    config.AuthorizationRequired = false;
+            //    foreach (TypiQLRole role in roles)
+            //    {
+            //        config.AuthorizedRoles.Add(role.Name);
+            //    }
+            //});
+
+            //app.UseMiddleware<GraphQLMiddleware>();
+            app.UseGraphQLGraphiQL("/ui/graphiql", options: new GraphiQLOptions { GraphQLEndPoint = "/graphql"});
             return app;
         }
         

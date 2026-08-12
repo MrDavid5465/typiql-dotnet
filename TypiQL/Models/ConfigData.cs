@@ -1,6 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Data.SqlClient;
+using Microsoft.Data.SqlClient;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
@@ -816,7 +816,7 @@ namespace DataCrush.TypiQL.Models
         }
         public ResolvedType ResolveType(string type)
         {
-            return ResolveType(BuildSchema().Result.FindType(type));
+            return ResolveType(BuildSchema().Result.AllTypes[type]);
         }
         public ResolvedType ResolveType(IFieldType a)
         {
@@ -877,8 +877,8 @@ namespace DataCrush.TypiQL.Models
             {
                 ISchema s = await BuildSchema(name, schema, queries, mutations);
                 var schemaTypes = s.AllTypes;
-                ObjectGraphType type = s.FindType(name) as ObjectGraphType;
-                InputObjectGraphType inputType = s.FindType($"{name}Input") as InputObjectGraphType;
+                ObjectGraphType type = s.AllTypes[name] as ObjectGraphType;
+                InputObjectGraphType inputType = s.AllTypes[$"{name}Input"] as InputObjectGraphType;
                 List<Column> columns = new List<Column>();
                 foreach (FieldType f in type.Fields)
                 {
@@ -928,7 +928,7 @@ namespace DataCrush.TypiQL.Models
             {
                 ISchema s = await BuildSchema(name, schema);
                 var schemaTypes = s.AllTypes;
-                IGraphType graphType = s.FindType(name);
+                IGraphType graphType = s.AllTypes[name];
                 Types type = new Types { Model = new Model { Columns = new List<Column>() } };
                 if (schema == null)
                 {
@@ -1024,7 +1024,7 @@ namespace DataCrush.TypiQL.Models
                         columnsToAdd.Add(new Column { Name = $"{f.Name}_anyEq", ColumnGraphType = resolvedType.ResolvedName, ColumnType = type.Model.Fields[f.Name].ColumnType, DataName = type.Model.Fields[f.Name].DataName, AllowedGroups = new List<string>() });
                         columnsToAdd.Add(new Column { Name = $"{f.Name}_anyNe", ColumnGraphType = resolvedType.ResolvedName, ColumnType = type.Model.Fields[f.Name].ColumnType, DataName = type.Model.Fields[f.Name].DataName, AllowedGroups = new List<string>() });
                     }
-                    if (s.FindType(resolvedType.Name) is ObjectGraphType subType && type.Type == "mongo" && resolvedType.TypeStack.Contains("array"))
+                    if (s.AllTypes[resolvedType.Name] is ObjectGraphType subType && type.Type == "mongo" && resolvedType.TypeStack.Contains("array"))
                     {
                         Types st = await GetTypesType(resolvedType.Name);
                         foreach (FieldType sf in subType.Fields)

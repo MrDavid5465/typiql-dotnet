@@ -1,8 +1,6 @@
 ﻿using DataCrush.TypiQL.Models.Mongo;
 using GraphQL;
 using GraphQL.Resolvers;
-using GraphQL.Server.Authorization.AspNetCore;
-using GraphQL.Subscription;
 using GraphQL.Types;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -27,14 +25,14 @@ namespace DataCrush.TypiQL.Models
             _settings = settings;
 
             Name = "Subscription";
-            AddField(new EventStreamFieldType
+            AddField(new FieldType
             {
                 Name = "typesGetAll",
                 Type = typeof(ListGraphType<TypesType>),
                 Resolver = new FuncFieldResolver<List<Types>>(context => context.Source as List<Types>),
-                Subscriber = new EventStreamResolver<List<Types>>(SubscribeToAllTypes)
-            }).AuthorizeWith(settings.TypiQLAdminRole);
-            AddField(new EventStreamFieldType
+                StreamResolver = new SourceStreamResolver<List<Types>>(SubscribeToAllTypes)
+            }).AuthorizeWithRoles(settings.TypiQLAdminRole);
+            AddField(new FieldType
             {
                 Name = "typeByName",
                 Arguments = new QueryArguments(
@@ -42,21 +40,21 @@ namespace DataCrush.TypiQL.Models
                 ),
                 Type = typeof(TypesType),
                 Resolver = new FuncFieldResolver<Types>(GetTypesType),
-                Subscriber = new EventStreamResolver<Types>(SubscribeToType)
-            }).AuthorizeWith(settings.TypiQLAdminRole);
-            AddField(new EventStreamFieldType
+                StreamResolver = new SourceStreamResolver<Types>(SubscribeToType)
+            }).AuthorizeWithRoles(settings.TypiQLAdminRole);
+            AddField(new FieldType
             {
                 Name = "typeAdded",
                 Type = typeof(TypesType),
                 Resolver = new FuncFieldResolver<Types>(GetTypesType),
-                Subscriber = new EventStreamResolver<Types>(Subscribe)
-            }).AuthorizeWith(settings.TypiQLAdminRole);
+                StreamResolver = new SourceStreamResolver<Types>(Subscribe)
+            }).AuthorizeWithRoles(settings.TypiQLAdminRole);
         }
-        private IObservable<List<Types>> SubscribeToAllTypes(IResolveEventStreamContext context)
+        private IObservable<List<Types>> SubscribeToAllTypes(IResolveFieldContext context)
         {
             return _data._typesRepo.TypesGetAll();
         }
-        private IObservable<Types> SubscribeToType(IResolveEventStreamContext context)
+        private IObservable<Types> SubscribeToType(IResolveFieldContext context)
         {
             string name = context.GetArgument<string>("name");
             return _data._typesRepo.Types().Where(t => t.Name == name);
@@ -65,7 +63,7 @@ namespace DataCrush.TypiQL.Models
         {
             return context.Source as Types;
         }
-        private IObservable<Types> Subscribe(IResolveEventStreamContext context)
+        private IObservable<Types> Subscribe(IResolveFieldContext context)
         {
             return _data._typesRepo.Types();
         }

@@ -11,9 +11,11 @@ namespace DataCrush.TypiQL
         public string Name { get; }
         public Func<IFieldResolver> ResolverSetup { get; }
         public IFieldResolver Resolver { get; set; }
-        public CustomResolver (string name, Func<IFieldResolver> resolver)
+        public List<TypiQLRole> RequiredRoles { get; set; }
+        public CustomResolver (string name, Func<IFieldResolver> resolver, List<TypiQLRole> requiredRoles = null)
         {
             Name = name;
+            RequiredRoles = requiredRoles;
             ResolverSetup = resolver;
         }
 

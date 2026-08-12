@@ -1,7 +1,6 @@
 ﻿using GraphQL.Instrumentation;
 using LinqKit;
 using Microsoft.AspNetCore.Http;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.Extensions.Options;
 using MongoDB.Bson;
 using MongoDB.Driver;

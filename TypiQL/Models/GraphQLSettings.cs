@@ -6,7 +6,7 @@ namespace TypiQL.Models
 {
     public class GraphQLSettings
     {
-        public PathString Path { get; set; } = "/api/graphql";
+        public PathString Path { get; set; } = "/graphql";
 
         public Func<HttpContext, IDictionary<string, object>> BuildUserContext { get; set; }
 

@@ -36,14 +36,14 @@ namespace DataCrush.TypiQL
             }
         }
         public List<CustomResolver> Resolvers { get; set; }
-        public Dictionary<string, IFieldResolver> ResolversDict 
+        public Dictionary<string, CustomResolver> ResolversDict 
         {
             get
             {
-                Dictionary<string, IFieldResolver> resolvers = new Dictionary<string, IFieldResolver>();
+                Dictionary<string, CustomResolver> resolvers = new Dictionary<string, CustomResolver>();
                 foreach(var resolver in Resolvers)
                 {
-                    resolvers.Add(resolver.Name, resolver.Resolver);
+                    resolvers.Add(resolver.Name, resolver);
                 }
                 return resolvers;
             } 
