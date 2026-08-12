@@ -4,10 +4,10 @@ using DataCrush.TypiQL.Models.Sql;
 using GraphQL;
 using GraphQL.DataLoader;
 using GraphQL.Resolvers;
-using GraphQL.Server.Authorization.AspNetCore;
 using GraphQL.Types;
 using GraphQL.Utilities;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using MongoDB.Bson;
@@ -95,8 +95,8 @@ namespace DataCrush.TypiQL.Models
                         {
                             { "user", _httpContext.HttpContext.User.Identity.Name },
                             { "operation", query.Type },
-                            { "type", context.ReturnType.Name },
-                            { context.ParentType.Name, context.FieldName },
+                            { "type", context.FieldDefinition.ResolvedType.Name },
+                            { context.ParentType.Name, context.FieldAst.Name },
                             { "arguments", context.Arguments },
                             { "result", result }
                         }
@@ -124,8 +124,8 @@ namespace DataCrush.TypiQL.Models
                         {
                             { "user", _httpContext.HttpContext.User.Identity.Name },
                             { "operation", query.ColumnType },
-                            { "type", context.ReturnType.Name },
-                            { context.ParentType.Name, context.FieldName },
+                            { "type", context.FieldDefinition.ResolvedType.Name },
+                            { context.ParentType.Name, context.FieldAst.Name },
                             { "arguments", context.Arguments },
                             { "result", result }
                         }
@@ -159,12 +159,12 @@ namespace DataCrush.TypiQL.Models
                         ResolvedType resolvedTypeInfo = _data.ResolveType(field);
                         field.Description = thisColumn.Description;
                         field.DeprecationReason = thisColumn.Deprecated;
-                        field.Resolver = new AsyncFieldResolver<dynamic>(async context =>
+                        field.Resolver = new FuncFieldResolver<dynamic>(async context =>
                         {
                             if (!Allowed(type.Name, field.Name, inSecureByDefault: true))
                             {
                                 Log(thisColumn, context, "access denied");
-                                return new UnauthorizedAccessException();
+                                throw new UnauthorizedAccessException();
                             }
                             if (!(context.Source is IDictionary<string, dynamic> obj))
                             {
@@ -227,7 +227,7 @@ namespace DataCrush.TypiQL.Models
                     var name = $"{type.Name.Substring(0, 1).ToLower()}{type.Name.Substring(1)}Changed";
                     if (thisType.Subscriptions == null || !thisType.SubscriptionsDict.ContainsKey(name))
                     {
-                        Subscription.AddField(new EventStreamFieldType
+                        Subscription.AddField(new FieldType
                         {
                             Name = name,
                             Type = subscriberType.GetType(),
@@ -236,7 +236,7 @@ namespace DataCrush.TypiQL.Models
                             {
                                 return context.Source as Subscriber<dynamic>;
                             }),
-                            AsyncSubscriber = new AsyncEventStreamResolver<Subscriber<dynamic>>(async context =>
+                            StreamResolver = new SourceStreamResolver<Subscriber<dynamic>>(async context =>
                             {
                                 return await _data.SubscribeToType(thisType);
                             })
@@ -246,7 +246,7 @@ namespace DataCrush.TypiQL.Models
                     {
                         foreach (Query sub in thisType.Subscriptions)
                         {
-                            EventStreamFieldType subscription = new EventStreamFieldType
+                            FieldType subscription = new FieldType
                             {
                                 Name = sub.Name,
                                 Arguments = userSchema.Subscription.Fields.Where(s => s.Name == sub.Name).First().Arguments,
@@ -261,14 +261,14 @@ namespace DataCrush.TypiQL.Models
                                         Log(sub, context, "access denied");
                                         throw new UnauthorizedAccessException();
                                     }
-                                    var result = context.Source;
-                                    Subscriber<Dictionary<string, dynamic>> dict = result as Subscriber<Dictionary<string, dynamic>>;
-                                    Subscriber<dynamic> dyn = new Subscriber<dynamic>
-                                    {
-                                        OperationName = dict.OperationName,
-                                        Value = dict.Value
-                                    };
-                                    return Log(sub, context, dyn);
+                                    //var result = context.Source;
+                                    //Subscriber<Dictionary<string, dynamic>> dict = result as Subscriber<Dictionary<string, dynamic>>;
+                                    //Subscriber<dynamic> dyn = new Subscriber<dynamic>
+                                    //{
+                                    //    OperationName = dict.OperationName,
+                                    //    Value = dict.Value
+                                    //};
+                                    return (Subscriber<dynamic>)Log(sub, context, context.Source);
                                 })
                             };
                             ResolvedType resolvedTypeInfo = _data.ResolveType(subscription);
@@ -289,7 +289,7 @@ namespace DataCrush.TypiQL.Models
                             subscription.Arguments.Add(new QueryArgument<StringGraphType> { Name = "operationName_not", ResolvedType = new StringGraphType().GetNamedType() });
                             subscription.Arguments.Add(new QueryArgument<ListGraphType<StringGraphType>> { Name = "operationName_in", ResolvedType = new ListGraphType<StringGraphType> { ResolvedType = new StringGraphType().GetNamedType() } });
                             subscription.Arguments.Add(new QueryArgument<ListGraphType<StringGraphType>> { Name = "operationName_notIn", ResolvedType = new ListGraphType<StringGraphType> { ResolvedType = new StringGraphType().GetNamedType() } });
-                            subscription.AsyncSubscriber = new AsyncEventStreamResolver<Subscriber<Dictionary<string, dynamic>>>(async context =>
+                            subscription.StreamResolver = new SourceStreamResolver<Subscriber<Dictionary<string, dynamic>>>(async context =>
                             {
                                 Dictionary<string, dynamic> filter = _helpers.BuildQueryFilter(thisType, sub.Arguments, subscription, context);
                                 return await _data.Subscription(thisType, filter);
@@ -339,7 +339,15 @@ namespace DataCrush.TypiQL.Models
                 }
                 if (_settings.ResolversDict.ContainsKey(query.Name))
                 {
-                    query.Resolver = _settings.ResolversDict[query.Name];
+                    CustomResolver resolver = _settings.ResolversDict[query.Name];
+                    query.Resolver = resolver.Resolver;
+                    if (resolver.RequiredRoles == null)
+                    {
+                        query.AllowAnonymous();
+                    } else
+                    {
+                        query.AuthorizeWithRoles(string.Join(",", resolver.RequiredRoles.SelectMany(c => c.Name)));
+                    }
                 }
                 else
                 {
@@ -392,7 +400,16 @@ namespace DataCrush.TypiQL.Models
                 }
                 if (_settings.ResolversDict.ContainsKey(mutation.Name))
                 {
-                    mutation.Resolver = _settings.ResolversDict[mutation.Name];
+                    CustomResolver resolve = _settings.ResolversDict[mutation.Name];
+                    mutation.Resolver = resolve.Resolver;
+                    if (resolve.RequiredRoles == null)
+                    {
+                        mutation.AllowAnonymous();
+                    }
+                    else
+                    {
+                        mutation.AuthorizeWithRoles(string.Join(",", resolve.RequiredRoles.SelectMany(c => c.Name)));
+                    }
                 }
                 else
                 {
@@ -601,7 +618,7 @@ namespace DataCrush.TypiQL.Models
                             filterArgs.Add(new QueryArgument<ListGraphType<DateTimeOffsetGraphType>> { Name = $"{a.Name}_anyNe" });
                         }
                     }
-                    if (schema.FindType(resolvedArgType.Name) is InputObjectGraphType subType &&
+                    if (/*schema.FindType(resolvedArgType.Name)*/ schema.AllTypes[resolvedArgType.Name] is InputObjectGraphType subType &&
                         type.Type == "mongo" &&
                         resolvedArgType.TypeStack.Contains("array")
                     )
@@ -889,7 +906,7 @@ namespace DataCrush.TypiQL.Models
                             filterArgs.Add(new QueryArgument<ListGraphType<DateTimeOffsetGraphType>> { Name = $"{a.Name}_anyNe", ResolvedType = new ListGraphType<DateTimeOffsetGraphType> { ResolvedType = new DateTimeOffsetGraphType().GetNamedType() } });
                         }
                     }
-                    if (schema.FindType(resolvedArgType.Name) is InputObjectGraphType subType &&
+                    if (schema.AllTypes[resolvedArgType.Name] is InputObjectGraphType subType &&
                         type.Type == "mongo" &&
                         resolvedArgType.TypeStack.Contains("array")
                     )
@@ -906,8 +923,8 @@ namespace DataCrush.TypiQL.Models
                                 filterArgs.Add(new QueryArgument<IdGraphType> { Name = $"{a.Name}_{sf.Name}_lastNot", ResolvedType = new IdGraphType().GetNamedType() });
                                 filterArgs.Add(new QueryArgument<IdGraphType> { Name = $"{a.Name}_{sf.Name}_first", ResolvedType = new IdGraphType().GetNamedType() });
                                 filterArgs.Add(new QueryArgument<IdGraphType> { Name = $"{a.Name}_{sf.Name}_firstNot", ResolvedType = new IdGraphType().GetNamedType() });
-                                filterArgs.Add(new QueryArgument<IndexIdType> { Name = $"{a.Name}_{sf.Name}_atIndex", ResolvedType = FindType("IndexIdInput").GetNamedType() });
-                                filterArgs.Add(new QueryArgument<IndexIdType> { Name = $"{a.Name}_{sf.Name}_atIndexNot", ResolvedType = FindType("IndexIdInput").GetNamedType() });
+                                filterArgs.Add(new QueryArgument<IndexIdType> { Name = $"{a.Name}_{sf.Name}_atIndex", ResolvedType = AllTypes["IndexIdInput"].GetNamedType() });
+                                filterArgs.Add(new QueryArgument<IndexIdType> { Name = $"{a.Name}_{sf.Name}_atIndexNot", ResolvedType = AllTypes["IndexIdInput"].GetNamedType() });
                             }
                             else if (rt.Name == "String")
                             {
@@ -929,8 +946,8 @@ namespace DataCrush.TypiQL.Models
                                 filterArgs.Add(new QueryArgument<StringGraphType> { Name = $"{a.Name}_{sf.Name}_lastNot", ResolvedType = new StringGraphType().GetNamedType() });
                                 filterArgs.Add(new QueryArgument<StringGraphType> { Name = $"{a.Name}_{sf.Name}_first", ResolvedType = new StringGraphType().GetNamedType() });
                                 filterArgs.Add(new QueryArgument<StringGraphType> { Name = $"{a.Name}_{sf.Name}_firstNot", ResolvedType = new StringGraphType().GetNamedType() });
-                                filterArgs.Add(new QueryArgument<IndexStringType> { Name = $"{a.Name}_{sf.Name}_atIndex", ResolvedType = FindType("IndexStringInput").GetNamedType() });
-                                filterArgs.Add(new QueryArgument<IndexStringType> { Name = $"{a.Name}_{sf.Name}_atIndexNot", ResolvedType = FindType("IndexStringInput").GetNamedType() });
+                                filterArgs.Add(new QueryArgument<IndexStringType> { Name = $"{a.Name}_{sf.Name}_atIndex", ResolvedType = AllTypes["IndexStringInput"].GetNamedType() });
+                                filterArgs.Add(new QueryArgument<IndexStringType> { Name = $"{a.Name}_{sf.Name}_atIndexNot", ResolvedType = AllTypes["IndexStringInput"].GetNamedType() });
                             }
                             else if (rt.Name == "Int")
                             {
@@ -946,8 +963,8 @@ namespace DataCrush.TypiQL.Models
                                 filterArgs.Add(new QueryArgument<IntGraphType> { Name = $"{a.Name}_{sf.Name}_lastNot", ResolvedType = new IntGraphType().GetNamedType() });
                                 filterArgs.Add(new QueryArgument<IntGraphType> { Name = $"{a.Name}_{sf.Name}_first", ResolvedType = new IntGraphType().GetNamedType() });
                                 filterArgs.Add(new QueryArgument<IntGraphType> { Name = $"{a.Name}_{sf.Name}_firstNot", ResolvedType = new IntGraphType().GetNamedType() });
-                                filterArgs.Add(new QueryArgument<IndexIntType> { Name = $"{a.Name}_{sf.Name}_atIndex", ResolvedType = FindType("IndexIntInput").GetNamedType() });
-                                filterArgs.Add(new QueryArgument<IndexIntType> { Name = $"{a.Name}_{sf.Name}_atIndexNot", ResolvedType = FindType("IndexIntInput").GetNamedType() });
+                                filterArgs.Add(new QueryArgument<IndexIntType> { Name = $"{a.Name}_{sf.Name}_atIndex", ResolvedType = AllTypes["IndexIntInput"].GetNamedType() });
+                                filterArgs.Add(new QueryArgument<IndexIntType> { Name = $"{a.Name}_{sf.Name}_atIndexNot", ResolvedType = AllTypes["IndexIntInput"].GetNamedType() });
                             }
                             else if (rt.Name == "Float")
                             {
@@ -963,8 +980,8 @@ namespace DataCrush.TypiQL.Models
                                 filterArgs.Add(new QueryArgument<FloatGraphType> { Name = $"{a.Name}_{sf.Name}_lastNot", ResolvedType = new FloatGraphType().GetNamedType() });
                                 filterArgs.Add(new QueryArgument<FloatGraphType> { Name = $"{a.Name}_{sf.Name}_first", ResolvedType = new FloatGraphType().GetNamedType() });
                                 filterArgs.Add(new QueryArgument<FloatGraphType> { Name = $"{a.Name}_{sf.Name}_firstNot", ResolvedType = new FloatGraphType().GetNamedType() });
-                                filterArgs.Add(new QueryArgument<IndexFloatType> { Name = $"{a.Name}_{sf.Name}_atIndex", ResolvedType = FindType("IndexFloatInput").GetNamedType() });
-                                filterArgs.Add(new QueryArgument<IndexFloatType> { Name = $"{a.Name}_{sf.Name}_atIndexNot", ResolvedType = FindType("IndexFloatInput").GetNamedType() });
+                                filterArgs.Add(new QueryArgument<IndexFloatType> { Name = $"{a.Name}_{sf.Name}_atIndex", ResolvedType = AllTypes["IndexFloatInput"].GetNamedType() });
+                                filterArgs.Add(new QueryArgument<IndexFloatType> { Name = $"{a.Name}_{sf.Name}_atIndexNot", ResolvedType = AllTypes["IndexFloatInput"].GetNamedType() });
                             }
                             else if (rt.Name == "Boolean")
                             {
@@ -974,8 +991,8 @@ namespace DataCrush.TypiQL.Models
                                 filterArgs.Add(new QueryArgument<BooleanGraphType> { Name = $"{a.Name}_{sf.Name}_lastNot", ResolvedType = new BooleanGraphType().GetNamedType() });
                                 filterArgs.Add(new QueryArgument<BooleanGraphType> { Name = $"{a.Name}_{sf.Name}_first", ResolvedType = new BooleanGraphType().GetNamedType() });
                                 filterArgs.Add(new QueryArgument<BooleanGraphType> { Name = $"{a.Name}_{sf.Name}_firstNot", ResolvedType = new BooleanGraphType().GetNamedType() });
-                                filterArgs.Add(new QueryArgument<IndexBooleanType> { Name = $"{a.Name}_{sf.Name}_atIndex", ResolvedType = FindType("IndexBooleanInput").GetNamedType() });
-                                filterArgs.Add(new QueryArgument<IndexBooleanType> { Name = $"{a.Name}_{sf.Name}_atIndexNot", ResolvedType = FindType("IndexBooleanInput").GetNamedType() });
+                                filterArgs.Add(new QueryArgument<IndexBooleanType> { Name = $"{a.Name}_{sf.Name}_atIndex", ResolvedType = AllTypes["IndexBooleanInput"].GetNamedType() });
+                                filterArgs.Add(new QueryArgument<IndexBooleanType> { Name = $"{a.Name}_{sf.Name}_atIndexNot", ResolvedType = AllTypes["IndexBooleanInput"].GetNamedType() });
                             }
                             else if (rt.Name == "DateTime")
                             {
@@ -991,8 +1008,8 @@ namespace DataCrush.TypiQL.Models
                                 filterArgs.Add(new QueryArgument<DateTimeGraphType> { Name = $"{a.Name}_{sf.Name}_lastNot", ResolvedType = new DateTimeGraphType().GetNamedType() });
                                 filterArgs.Add(new QueryArgument<DateTimeGraphType> { Name = $"{a.Name}_{sf.Name}_first", ResolvedType = new DateTimeGraphType().GetNamedType() });
                                 filterArgs.Add(new QueryArgument<DateTimeGraphType> { Name = $"{a.Name}_{sf.Name}_firstNot", ResolvedType = new DateTimeGraphType().GetNamedType() });
-                                filterArgs.Add(new QueryArgument<IndexDateTimeType> { Name = $"{a.Name}_{sf.Name}_atIndex", ResolvedType = FindType("IndexDateTimeInput").GetNamedType() });
-                                filterArgs.Add(new QueryArgument<IndexDateTimeType> { Name = $"{a.Name}_{sf.Name}_atIndexNot", ResolvedType = FindType("IndexDateTimeInput").GetNamedType() });
+                                filterArgs.Add(new QueryArgument<IndexDateTimeType> { Name = $"{a.Name}_{sf.Name}_atIndex", ResolvedType = AllTypes["IndexDateTimeInput"].GetNamedType() });
+                                filterArgs.Add(new QueryArgument<IndexDateTimeType> { Name = $"{a.Name}_{sf.Name}_atIndexNot", ResolvedType = AllTypes["IndexDateTimeInput"].GetNamedType() });
                             }
                             else if (rt.Name == "DateTimeOffset")
                             {
@@ -1008,8 +1025,8 @@ namespace DataCrush.TypiQL.Models
                                 filterArgs.Add(new QueryArgument<DateTimeOffsetGraphType> { Name = $"{a.Name}_{sf.Name}_lastNot", ResolvedType = new DateTimeOffsetGraphType().GetNamedType() });
                                 filterArgs.Add(new QueryArgument<DateTimeOffsetGraphType> { Name = $"{a.Name}_{sf.Name}_first", ResolvedType = new DateTimeOffsetGraphType().GetNamedType() });
                                 filterArgs.Add(new QueryArgument<DateTimeOffsetGraphType> { Name = $"{a.Name}_{sf.Name}_firstNot", ResolvedType = new DateTimeOffsetGraphType().GetNamedType() });
-                                filterArgs.Add(new QueryArgument<IndexDateTimeOffsetType> { Name = $"{a.Name}_{sf.Name}_atIndex", ResolvedType = FindType("IndexDateTimeOffsetInput").GetNamedType() });
-                                filterArgs.Add(new QueryArgument<IndexDateTimeOffsetType> { Name = $"{a.Name}_{sf.Name}_atIndexNot", ResolvedType = FindType("IndexDateTimeOffsetInput").GetNamedType() });
+                                filterArgs.Add(new QueryArgument<IndexDateTimeOffsetType> { Name = $"{a.Name}_{sf.Name}_atIndex", ResolvedType = AllTypes["IndexDateTimeOffsetInput"].GetNamedType() });
+                                filterArgs.Add(new QueryArgument<IndexDateTimeOffsetType> { Name = $"{a.Name}_{sf.Name}_atIndexNot", ResolvedType = AllTypes["IndexDateTimeOffsetInput"].GetNamedType() });
                             }
                             if (resolvedArgType.Name == "ID")
                             {

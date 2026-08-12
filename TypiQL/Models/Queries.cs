@@ -2,7 +2,6 @@
 using DataCrush.TypiQL.Models.Mongo;
 using DataCrush.TypiQL.Models.Sql;
 using GraphQL;
-using GraphQL.Server.Authorization.AspNetCore;
 using GraphQL.Types;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Hosting;
@@ -51,7 +50,7 @@ namespace DataCrush.TypiQL.Models
                         return e.ToString();
                     }
                 }
-            ).AuthorizeWith(_settings.TypiQLAdminRole);
+            ).AuthorizeWithRoles(_settings.TypiQLAdminRole);
             Field<ListGraphType<ConnectionType>>(
                 "getConnections",
                 arguments: new QueryArguments(
@@ -65,7 +64,7 @@ namespace DataCrush.TypiQL.Models
                     }
                     return data.GetConnections();
                 }
-            ).AuthorizeWith(_settings.TypiQLAdminRole);
+            ).AuthorizeWithRoles(_settings.TypiQLAdminRole);
             Field<ConnectionType>(
                 "getConnection",
                 arguments: new QueryArguments(
@@ -75,7 +74,7 @@ namespace DataCrush.TypiQL.Models
                 {
                     return data.GetConnection(new ObjectId(context.GetArgument<string>("id")));
                 }
-            ).AuthorizeWith(_settings.TypiQLAdminRole);
+            ).AuthorizeWithRoles(_settings.TypiQLAdminRole);
             Field<ListGraphType<SqlColumnType>>(
                 "getSQLColumns",
                 arguments: new QueryArguments(
@@ -86,7 +85,7 @@ namespace DataCrush.TypiQL.Models
                 {
                     return data.GetSqlColumns(context.GetArgument<string>("connection"), context.GetArgument<string>("table"));                 
                 }
-            ).AuthorizeWith(_settings.TypiQLAdminRole);
+            ).AuthorizeWithRoles(_settings.TypiQLAdminRole);
             Field<ConnectionType>(
                 "getConnectionByName",
                 arguments: new QueryArguments(
@@ -96,7 +95,7 @@ namespace DataCrush.TypiQL.Models
                 {
                     return data.GetConnection(context.GetArgument<string>("name"));
                 }
-            ).AuthorizeWith(_settings.TypiQLAdminRole);
+            ).AuthorizeWithRoles(_settings.TypiQLAdminRole);
             Field<ListGraphType<TypesType>>(
                 "getTypes",
                 arguments: new QueryArguments(
@@ -115,7 +114,7 @@ namespace DataCrush.TypiQL.Models
                     }
                     return data.GetTypes();
                 }
-            ).AuthorizeWith(_settings.TypiQLAdminRole);
+            ).AuthorizeWithRoles(_settings.TypiQLAdminRole);
             Field<ListGraphType<StringGraphType>>(
                 "getDatabaseNames",
                 arguments: new QueryArguments(
@@ -126,7 +125,7 @@ namespace DataCrush.TypiQL.Models
                 {
                     return data.GetDatabaseNames(context.GetArgument<string>("type"), context.GetArgument<string>("connectionString"));                    
                 }
-            ).AuthorizeWith(_settings.TypiQLAdminRole);
+            ).AuthorizeWithRoles(_settings.TypiQLAdminRole);
             Field<TypesType>(
                 "getTypeByName",
                 arguments: new QueryArguments(
@@ -136,7 +135,7 @@ namespace DataCrush.TypiQL.Models
                 {
                     return data.GetTypesType(context.GetArgument<string>("name"));
                 }
-            ).AuthorizeWith(_settings.TypiQLAdminRole);
+            ).AuthorizeWithRoles(_settings.TypiQLAdminRole);
             Field<StringGraphType>(
                 "getTypeAsJson",
                 arguments: new QueryArguments(
@@ -151,7 +150,7 @@ namespace DataCrush.TypiQL.Models
                     }
                     return data.GetTypeAsJson(context.GetArgument<string>("name"));
                 }
-            ).AuthorizeWith(_settings.TypiQLAdminRole);
+            ).AuthorizeWithRoles(_settings.TypiQLAdminRole);
             Field<TypesType>(
                 "getType",
                 arguments: new QueryArguments(
@@ -161,7 +160,7 @@ namespace DataCrush.TypiQL.Models
                 {
                     return data.GetTypesType(new ObjectId(context.GetArgument<string>("id")));
                 }
-            ).AuthorizeWith(_settings.TypiQLAdminRole);
+            ).AuthorizeWithRoles(_settings.TypiQLAdminRole);
             Field<ListGraphType<ColumnType>>(
                 "getFilterColumns",
                 arguments: new QueryArguments(
@@ -172,21 +171,21 @@ namespace DataCrush.TypiQL.Models
                 {
                     return data.GetFilterColumns(context.GetArgument<string>("name"), context.GetArgument<string>("schema"));
                 }
-            ).AuthorizeWith(_settings.TypiQLAdminRole);
+            ).AuthorizeWithRoles(_settings.TypiQLAdminRole);
             Field<StringGraphType>(
                 "getServerApiKey",
                 resolve: context =>
                 {
                     return data.GetServer().Result.AccessToken;
                 }
-            ).AuthorizeWith(_settings.TypiQLAdminRole);
+            ).AuthorizeWithRoles(_settings.TypiQLAdminRole);
             Field<ServerType>(
                 "getServerConfig",
                 resolve: context =>
                 {
                     return data.GetServer();
                 }
-            ).AuthorizeWith(_settings.TypiQLAdminRole);
+            ).AuthorizeWithRoles(_settings.TypiQLAdminRole);
             Field<BucketType>(
                 "getBucket",
                 arguments: new QueryArguments(
@@ -203,7 +202,7 @@ namespace DataCrush.TypiQL.Models
                     return data.GetBucket(context.GetArgument<string>("name"), context.GetArgument<string>("type"), data.GetUserName());
                     
                 }
-            ).AuthorizeWith(_settings.TypiQLAdminRole);
+            ).AuthorizeWithRoles(_settings.TypiQLAdminRole);
             Field<ListGraphType<BucketType>>(
                 "getBuckets",
                 arguments: new QueryArguments(
@@ -214,14 +213,14 @@ namespace DataCrush.TypiQL.Models
                 {
                     return data.ListBucket(context.GetArgument<string>("name"), context.GetArgument<string>("type"), data.GetUserName());
                 }
-            ).AuthorizeWith(_settings.TypiQLAdminRole);
+            ).AuthorizeWithRoles(_settings.TypiQLAdminRole);
             Field<ListGraphType<TypiQLRoleType>>(
                 "getGroups",
                 resolve: context =>
                 {
                     return data.GetGroups();
                 }
-            ).AuthorizeWith(_settings.TypiQLAdminRole);
+            ).AuthorizeWithRoles(_settings.TypiQLAdminRole);
             Field<ListGraphType<TypiQLRoleType>>(
                 "getMyTypiQLRoles",
                 resolve: context =>
@@ -235,7 +234,7 @@ namespace DataCrush.TypiQL.Models
                 {
                     return data.GetRoles();
                 }
-            ).AuthorizeWith(_settings.TypiQLAdminRole);
+            ).AuthorizeWithRoles(_settings.TypiQLAdminRole);
             Field<StringGraphType>(
                 "getSchemaString",
                 arguments: new QueryArguments(
@@ -255,7 +254,7 @@ namespace DataCrush.TypiQL.Models
                         context.GetArgument<string>("remove")
                     );
                 }
-            ).AuthorizeWith(_settings.TypiQLAdminRole);
+            ).AuthorizeWithRoles(_settings.TypiQLAdminRole);
             Field<TypiQLClientType>(
                 "getTypiQLClient",
                 resolve: context =>

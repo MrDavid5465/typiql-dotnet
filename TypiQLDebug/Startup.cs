@@ -100,7 +100,7 @@ namespace TypiQLDebug
             services.AddSingleton<TypiQLSettings, TestTypiQL>();
             services.AddHttpContextAccessor();
 
-            services.AddTypiQL(settings.Roles);
+            services.AddTypiQL();
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
@@ -118,8 +118,18 @@ namespace TypiQLDebug
 
             app.UseAuthentication();
             app.UseAuthorization();
-
-            app.UseTypiQL();
+            Settings settings = new Settings
+            {
+                ConnectionString = Configuration.GetSection("MongoConnection:ConnectionString").Value,
+                Database = Configuration.GetSection("MongoConnection:Database").Value,
+                Secret = Configuration.GetSection("Authentication:Secret").Value,
+                TypiQLConnectionString = Configuration.GetSection("TypiQLConfig:ConnectionString").Value,
+                TypiQLDatabase = Configuration.GetSection("TypiQLConfig:ConfigDatabase").Value,
+                TypiQLAdminRole = Configuration.GetSection("TypiQLConfig:AdminRole").Value,
+                UserNameProperty = Configuration.GetSection("TypiQLConfig:UserNameProperty").Value
+            };
+            settings.GetRoles();
+            app.UseTypiQL(settings.Roles);
 
             app.UseEndpoints(endpoints =>
             {
