@@ -19,6 +19,7 @@ using System.Security.Claims;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using TypiQL.Models;
 
 namespace DataCrush.TypiQL.Models
 {
@@ -3639,7 +3640,7 @@ namespace DataCrush.TypiQL.Models
             var userName = "";
             if (arg.StartsWith("@currentUser"))
             {
-                userName = _httpContext.HttpContext.User.Identity.Name;
+                userName = _data.GetUserName();
             }
             else if (arg.StartsWith("@user") && Regex.IsMatch(arg.Split(".")[0], "([\\(\\)])"))
             {
@@ -3705,7 +3706,7 @@ namespace DataCrush.TypiQL.Models
             }
             else if (arg.Split(".")[1] == "groups")
             {
-                return _httpContext.HttpContext.User.Claims.Where(c => c.Type == ClaimTypes.Role).ToList();
+                return _httpContext.HttpContext.User.Claims.Where(c => c.Type == ClaimTypes.Role).Select(r => r.Value).ToList();
             }
             else
             {
@@ -3755,7 +3756,7 @@ namespace DataCrush.TypiQL.Models
                         }
                     //case "ad":
                     //    {
-                    //        result = _adData.BatchADObject(type.Name, filter);
+                    //        return _aDData.GetADObject(type.Name, filter);
                     //        break;
                     //    }
                     default:
@@ -3781,7 +3782,7 @@ namespace DataCrush.TypiQL.Models
                         }
                     //case "ad":
                     //    {
-                    //        result = _adData.GetADObjects(type.Name, filter);
+                    //        return _aDData.GetADObjects(type.Name, filter);
                     //        break;
                     //    }
                     default:
@@ -3791,14 +3792,14 @@ namespace DataCrush.TypiQL.Models
                 }
             });
         }
-        public List<dynamic> GetMany(IResolveFieldContext context, Types type, Dictionary<string, dynamic> filter)
+        public dynamic GetMany(IResolveFieldContext context, Types type, Dictionary<string, dynamic> filter)
         {
-            List<dynamic> result = new List<dynamic>();
+            dynamic result = new PageInfo();
             switch (type.Type)
             {
                 case "mongo":
                     {
-                        result = _mongoData.GetDocuments(type.Name, filter).Result;
+                        result = _mongoData.AggregateDocuments(type.Name, filter).Result;
                         break;
                     }
                 case "sql":
@@ -3818,6 +3819,33 @@ namespace DataCrush.TypiQL.Models
             }
             return result;
         }
+        public PageInfo GetManyPageInfo(IResolveFieldContext context, Types type, Dictionary<string, dynamic> filter)
+        {
+            dynamic result = new PageInfo();
+            switch (type.Type)
+            {
+                case "mongo":
+                    {
+                        result = _mongoData.GetDocumentsPageInfo(type.Name, filter).Result;
+                        break;
+                    }
+                case "sql":
+                    {
+                        result = _sqlData.GetRecordsPageInfo(context, type.Name, filter).Result;
+                        break;
+                    }
+                case "ad":
+                    {
+                        result = _aDData.GetADObjectsPageInfo(type.Name, filter);
+                        break;
+                    }
+                default:
+                    {
+                        break;
+                    };
+            }
+            return result;
+        }
         public Dictionary<string, dynamic> GetOne(IResolveFieldContext context, Types type, Dictionary<string, dynamic> filter)
         {
             Dictionary<string, dynamic> result = new Dictionary<string, dynamic>();
@@ -3825,7 +3853,7 @@ namespace DataCrush.TypiQL.Models
             {
                 case "mongo":
                     {
-                        result = _mongoData.GetDocument(type.Name, filter).Result;
+                        result = _mongoData.AggregateDocument(type.Name, filter).Result;
                         break;
                     }
                 case "sql":

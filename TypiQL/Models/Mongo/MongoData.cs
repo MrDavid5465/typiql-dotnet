@@ -16,6 +16,7 @@ using System.IO;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
+using TypiQL.Models;
 
 namespace DataCrush.TypiQL.Models.Mongo
 {
@@ -60,6 +61,690 @@ namespace DataCrush.TypiQL.Models.Mongo
             if (adConnection != null)
                 _connections.Add(adConnection.Id.ToString(), new MongoClient(settings.TypiQLConnectionString).GetDatabase(settings.TypiQLDatabase));
             _helpers = helpers;
+        }
+        public BsonDocument BuildRelationshipFilter(Types t, Column column, Dictionary<string, dynamic> keys, ref BsonDocument let, ref int skip, ref int limit, List<SortDefinition<BsonDocument>> sort)
+        {
+            //var let = new BsonDocument();
+            BsonArray filters = new BsonArray();
+            //List<FilterDefinition<BsonDocument>> filters = new List<FilterDefinition<BsonDocument>>();
+            //foreach (var arg in field.Arguments)
+            //{
+            //    let.Add(arg.Value, $"${t.Model.Fields[arg.Value].DataName}");
+            //    BsonArray eq = new BsonArray {
+            //        $"${fieldType.Model.Fields[arg.Key.Split("_")[0]].DataName}"
+            //    };
+            //    if (fieldType.Model.Fields[arg.Key].DataName == "_id")
+            //    {
+            //        eq.Add(new BsonDocument("$toObjectId", $"$${t.Model.Fields[arg.Value].DataName}"));
+            //    } 
+            //    else
+            //    {
+            //        eq.Add($"$${t.Model.Fields[arg.Value].DataName}");
+            //    }
+            //    and.Add(new BsonDocument("$eq", eq));
+            //}
+
+
+
+            foreach (KeyValuePair<string, dynamic> key in keys)
+            {
+                dynamic value = null;
+                let.Add(key.Key, BsonTypeMapper.MapToBsonValue(key.Value));
+                if (key.Value == null || key.Value is string && key.Value == "")
+                {
+
+                }
+                else if (t.Model.Fields.ContainsKey(key.Key.Split("_")[0]) && t.Model.Fields[key.Key.Split("_")[0]].DataName == "_id")
+                {
+                    value = new BsonDocument("$convert", new BsonDocument()
+                        .Add("input", $"$${key.Key}")
+                        .Add("to", "objectId")
+                        .Add("onError", ""));
+                }
+                else
+                {
+                    value = $"$${key.Key}";
+                }
+                if (value == null)
+                {
+
+                }
+                else if (key.Key == "_orderBy" && value != null)
+                {
+                    foreach (string field in ((string)value).Split(","))
+                    {
+                        List<string> sortField = new List<string>();
+                        Types partType = t;
+                        foreach (string part in field.Split("."))
+                        {
+                            sortField.Add(partType.Model.Fields[part].DataName);
+                            if (partType.Model.Fields[part].ColumnType == "List" || partType.Model.Fields[part].ColumnType == "Object")
+                            {
+                                partType = _data.typeDict[partType.Model.Fields[part].ColumnType == "Object" ? partType.Model.Fields[part].ColumnGraphType : partType.Model.Fields[part].ColumnGraphType.Split('[', ']')[1]];
+                            }
+                        }
+                        sort.Add(Builders<BsonDocument>.Sort.Ascending(string.Join(".", sortField)));
+                    }
+                }
+                else if (key.Key == "_orderBy_desc" && value != null)
+                {
+                    foreach (string field in ((string)value).Split(","))
+                    {
+                        List<string> sortField = new List<string>();
+
+                        Types partType = t;
+                        foreach (string part in field.Split("."))
+                        {
+                            sortField.Add(partType.Model.Fields[part].DataName);
+                            if (partType.Model.Fields[part].ColumnType == "List" || partType.Model.Fields[part].ColumnType == "Object")
+                            {
+                                partType = _data.typeDict[partType.Model.Fields[part].ColumnType == "Object" ? partType.Model.Fields[part].ColumnGraphType : partType.Model.Fields[part].ColumnGraphType.Split('[', ']')[1]];
+                            }
+                        }
+                        sort.Add(Builders<BsonDocument>.Sort.Descending(string.Join(".", sortField)));
+                    }
+                }
+                else if (key.Key == "_upsert" && value != null)
+                {
+                    //upsert = (bool)value;
+                }
+                else if (key.Key == "_start" && value != null)
+                {
+                    skip = (int)value;
+                }
+                else if (key.Key == "_limit" && value != null)
+                {
+                    limit = (int)value;
+                }
+                else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[1] == "startsWith")
+                {
+                    filters.Add(new BsonDocument($"${t.Model.Fields[key.Key.Split("_")[0]].DataName}", new BsonDocument("$regex", $"/^{value}/i").Add("$options", "i")));
+                    //filters.Add(Builders<BsonDocument>.Filter.Regex(t.Model.Fields[key.Key.Split("_")[0]].DataName, new BsonRegularExpression($"/^{value}/i")));
+                }
+                else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[1] == "endsWith")
+                {
+                    filters.Add(new BsonDocument($"${t.Model.Fields[key.Key.Split("_")[0]].DataName}", new BsonDocument("$regex", $"/{value}$/i").Add("$options", "i")));
+                    //filters.Add(Builders<BsonDocument>.Filter.Regex(t.Model.Fields[key.Key.Split("_")[0]].DataName, new BsonRegularExpression($"/{value}$/i")));
+                }
+                else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[1] == "notStartsWith")
+                {
+                    filters.Add(new BsonDocument($"${t.Model.Fields[key.Key.Split("_")[0]].DataName}", new BsonDocument("$regex", $"/^(?!{value}).*/i").Add("$options", "i")));
+                    //filters.Add(Builders<BsonDocument>.Filter.Regex(t.Model.Fields[key.Key.Split("_")[0]].DataName, new BsonRegularExpression($"/^(?!{value}).*/i")));
+                }
+                else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[1] == "notEndsWith")
+                {
+                    filters.Add(new BsonDocument($"${t.Model.Fields[key.Key.Split("_")[0]].DataName}", new BsonDocument("$regex", $"/.*(?<!{value})$/i").Add("$options", "i")));
+                    //filters.Add(Builders<BsonDocument>.Filter.Regex(t.Model.Fields[key.Key.Split("_")[0]].DataName, new BsonRegularExpression($"/.*(?<!{value})$/i")));
+                }
+                else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[1] == "contains")
+                {
+                    filters.Add(new BsonDocument($"${t.Model.Fields[key.Key.Split("_")[0]].DataName}", new BsonDocument("$regex", $"/{value}/i").Add("$options", "i")));
+                    //filters.Add(Builders<BsonDocument>.Filter.Regex(t.Model.Fields[key.Key.Split("_")[0]].DataName, new BsonRegularExpression($"/{value}/i")));
+                }
+                else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[1] == "notContains")
+                {
+                    filters.Add(new BsonDocument($"${t.Model.Fields[key.Key.Split("_")[0]].DataName}", new BsonDocument("$regex", $"/(?!{value})/i").Add("$options", "i")));
+                    //filters.Add(Builders<BsonDocument>.Filter.Regex(t.Model.Fields[key.Key.Split("_")[0]].DataName, new BsonRegularExpression($"/(?!{value})/i")));
+                }
+                else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[1] == "lte")
+                {
+                    filters.Add(new BsonDocument("$lte", new BsonArray { $"${t.Model.Fields[key.Key.Split("_")[0]].DataName}", value }));
+                    //filters.Add(Builders<BsonDocument>.Filter.Lte(t.Model.Fields[key.Key.Split("_")[0]].DataName, value));
+                }
+                else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[1] == "lt")
+                {
+                    filters.Add(new BsonDocument("$lt", new BsonArray { $"${t.Model.Fields[key.Key.Split("_")[0]].DataName}", value }));
+                    //filters.Add(Builders<BsonDocument>.Filter.Lt(t.Model.Fields[key.Key.Split("_")[0]].DataName, value));
+                }
+                else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[1] == "gte")
+                {
+                    filters.Add(new BsonDocument("$gte", new BsonArray { $"${t.Model.Fields[key.Key.Split("_")[0]].DataName}", value }));
+                    //filters.Add(Builders<BsonDocument>.Filter.Gte(t.Model.Fields[key.Key.Split("_")[0]].DataName, value));
+                }
+                else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[1] == "gt")
+                {
+                    filters.Add(new BsonDocument("$gt", new BsonArray { $"${t.Model.Fields[key.Key.Split("_")[0]].DataName}", value }));
+                    //filters.Add(Builders<BsonDocument>.Filter.Gt(t.Model.Fields[key.Key.Split("_")[0]].DataName, value));
+                }
+                else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[1] == "in")
+                {
+                    var wat = new BsonDocument("$in", new BsonArray { $"${t.Model.Fields[key.Key.Split("_")[0]].DataName}", value });
+                    filters.Add(wat);
+                    //filters.Add(Builders<BsonDocument>.Filter.In(t.Model.Fields[key.Key.Split("_")[0]].DataName, value));
+                }
+                else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[1] == "notIn")
+                {
+                    filters.Add(new BsonDocument("$nin", new BsonArray { $"${t.Model.Fields[key.Key.Split("_")[0]].DataName}", value }));
+                    //filters.Add(Builders<BsonDocument>.Filter.Nin(t.Model.Fields[key.Key.Split("_")[0]].DataName, value));
+                }
+                else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[1] == "anyEq")
+                {
+                    filters.Add(new BsonDocument("$anyEq", new BsonArray { $"${t.Model.Fields[key.Key.Split("_")[0]].DataName}", value }));
+                    //filters.Add(Builders<BsonDocument>.Filter.AnyEq(t.Model.Fields[key.Key.Split("_")[0]].DataName, value));
+                }
+                else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[1] == "anyNe")
+                {
+                    filters.Add(new BsonDocument("$anyNe", new BsonArray { $"${t.Model.Fields[key.Key.Split("_")[0]].DataName}", value }));
+                    //filters.Add(Builders<BsonDocument>.Filter.AnyNe(t.Model.Fields[key.Key.Split("_")[0]].DataName, value));
+                }
+                else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[1] == "not")
+                {
+                    filters.Add(new BsonDocument("$ne", new BsonArray { $"${t.Model.Fields[key.Key.Split("_")[0]].DataName}", value }));
+                    //filters.Add(Builders<BsonDocument>.Filter.Ne(t.Model.Fields[key.Key.Split("_")[0]].DataName, value));
+                }
+                else if (key.Key.Split("_").Length > 1 && key.Key.Split("_").Length == 3)
+                {
+                    Types st = _data.typeDict[_data.ResolveType(t.Model.Fields[key.Key.Split("_")[0]].ColumnGraphType).Name];
+                    if (key.Value == null || key.Value is string && key.Value == "")
+                    {
+
+                    }
+                    else if (t.Model.Fields.ContainsKey(key.Key.Split("_")[1]) && t.Model.Fields[key.Key.Split("_")[1]].DataName == "_id")
+                    {
+                        value = new BsonDocument("$convert", new BsonDocument()
+                        .Add("input", $"$${key.Key}")
+                        .Add("to", "objectId")
+                        .Add("onError", ""));
+                    }
+                    else
+                    {
+                        value = $"$${key.Key}";
+                    }
+                    if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[2] == "startsWith")
+                    {
+                        filters.Add(
+                            new BsonDocument(
+                                "$elemMatch",
+                                new BsonDocument(
+                                    $"${t.Model.Fields[key.Key.Split("_")[0]].DataName}",
+                                    new BsonDocument(
+                                        $"${st.Model.Fields[key.Key.Split("_")[1]].DataName}",
+                                        new BsonDocument(
+                                            "$regex",
+                                            $"/^{value}/i"
+                                        ).Add("$options", "i")
+                                    )
+                                )
+                            )
+                        );
+                        //filters.Add(
+                        //    Builders<BsonDocument>.Filter.ElemMatch(
+                        //        t.Model.Fields[key.Key.Split("_")[0]].DataName,
+                        //        Builders<BsonDocument>.Filter.Regex(
+                        //            st.Model.Fields[key.Key.Split("_")[1]].DataName,
+                        //            new BsonRegularExpression($"/^{value}/i")
+                        //        )
+                        //    )
+                        //);
+                    }
+                    else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[2] == "endsWith")
+                    {
+                        filters.Add(
+                            new BsonDocument(
+                                "$elemMatch",
+                                new BsonDocument(
+                                    $"${t.Model.Fields[key.Key.Split("_")[0]].DataName}",
+                                    new BsonDocument(
+                                        $"${st.Model.Fields[key.Key.Split("_")[1]].DataName}",
+                                        new BsonDocument(
+                                            "$regex",
+                                            $"/{value}$/i"
+                                        ).Add("$options", "i")
+                                    )
+                                )
+                            )
+                        );
+                        //filters.Add(
+                        //    Builders<BsonDocument>.Filter.ElemMatch(
+                        //        t.Model.Fields[key.Key.Split("_")[0]].DataName,
+                        //        Builders<BsonDocument>.Filter.Regex(
+                        //            st.Model.Fields[key.Key.Split("_")[1]].DataName,
+                        //            new BsonRegularExpression($"/{value}$/i")
+                        //        )
+                        //    )
+                        //);
+                    }
+                    else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[2] == "notStartsWith")
+                    {
+                        filters.Add(
+                            new BsonDocument(
+                                "$elemMatch",
+                                new BsonDocument(
+                                    $"${t.Model.Fields[key.Key.Split("_")[0]].DataName}",
+                                    new BsonDocument(
+                                        $"${st.Model.Fields[key.Key.Split("_")[1]].DataName}",
+                                        new BsonDocument(
+                                            "$regex",
+                                            $"/^(?!{value}).*/i"
+                                        ).Add("$options", "i")
+                                    )
+                                )
+                            )
+                        );
+                        //filters.Add(
+                        //    Builders<BsonDocument>.Filter.ElemMatch(
+                        //        t.Model.Fields[key.Key.Split("_")[0]].DataName,
+                        //        Builders<BsonDocument>.Filter.Regex(
+                        //            st.Model.Fields[key.Key.Split("_")[1]].DataName,
+                        //            new BsonRegularExpression($"/^(?!{value}).*/i")
+                        //        )
+                        //    )
+                        //);
+                    }
+                    else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[2] == "notEndsWith")
+                    {
+                        filters.Add(
+                            new BsonDocument(
+                                "$elemMatch",
+                                new BsonDocument(
+                                    $"${t.Model.Fields[key.Key.Split("_")[0]].DataName}",
+                                    new BsonDocument(
+                                        $"${st.Model.Fields[key.Key.Split("_")[1]].DataName}",
+                                        new BsonDocument(
+                                            "$regex",
+                                            $"/.*(?<!{value})$/i"
+                                        ).Add("$options", "i")
+                                    )
+                                )
+                            )
+                        );
+                        //filters.Add(
+                        //    Builders<BsonDocument>.Filter.ElemMatch(
+                        //        t.Model.Fields[key.Key.Split("_")[0]].DataName,
+                        //        Builders<BsonDocument>.Filter.Regex(
+                        //            st.Model.Fields[key.Key.Split("_")[1]].DataName,
+                        //            new BsonRegularExpression($"/.*(?<!{value})$/i")
+                        //        )
+                        //    )
+                        //);
+                    }
+                    else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[2] == "contains")
+                    {
+                        filters.Add(
+                            new BsonDocument(
+                                "$elemMatch",
+                                new BsonDocument(
+                                    $"${t.Model.Fields[key.Key.Split("_")[0]].DataName}",
+                                    new BsonDocument(
+                                        $"${st.Model.Fields[key.Key.Split("_")[1]].DataName}",
+                                        new BsonDocument(
+                                            "$regex",
+                                            $"/{value}/i"
+                                        ).Add("$options", "i")
+                                    )
+                                )
+                            )
+                        );
+                        //filters.Add(
+                        //    Builders<BsonDocument>.Filter.ElemMatch(
+                        //        t.Model.Fields[key.Key.Split("_")[0]].DataName,
+                        //        Builders<BsonDocument>.Filter.Regex(
+                        //            st.Model.Fields[key.Key.Split("_")[1]].DataName,
+                        //            new BsonRegularExpression($"/{value}/i")
+                        //        )
+                        //    )
+                        //);
+                    }
+                    else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[2] == "notContains")
+                    {
+                        filters.Add(
+                            new BsonDocument(
+                                "$elemMatch",
+                                new BsonDocument(
+                                    $"${t.Model.Fields[key.Key.Split("_")[0]].DataName}",
+                                    new BsonDocument(
+                                        $"${st.Model.Fields[key.Key.Split("_")[1]].DataName}",
+                                        new BsonDocument(
+                                            "$regex",
+                                            $"/(?!{value})/i"
+                                        ).Add("$options", "i")
+                                    )
+                                )
+                            )
+                        );
+                        //filters.Add(
+                        //    Builders<BsonDocument>.Filter.ElemMatch(
+                        //        t.Model.Fields[key.Key.Split("_")[0]].DataName,
+                        //        Builders<BsonDocument>.Filter.Regex(
+                        //            st.Model.Fields[key.Key.Split("_")[1]].DataName,
+                        //            new BsonRegularExpression($"/(?!{value})/i")
+                        //        )
+                        //    )
+                        //);
+                    }
+                    else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[2] == "lte")
+                    {
+                        filters.Add(
+                            new BsonDocument(
+                                "$elemMatch",
+                                new BsonDocument(
+                                    $"${t.Model.Fields[key.Key.Split("_")[0]].DataName}",
+                                    new BsonDocument("$lte", new BsonArray { $"${st.Model.Fields[key.Key.Split("_")[1]].DataName}", value })
+                                )
+                            )
+                        );
+                        //filters.Add(
+                        //    Builders<BsonDocument>.Filter.ElemMatch(
+                        //        t.Model.Fields[key.Key.Split("_")[0]].DataName,
+                        //        Builders<BsonDocument>.Filter.Lte(
+                        //            st.Model.Fields[key.Key.Split("_")[1]].DataName,
+                        //            value
+                        //        )
+                        //    )
+                        //);
+                    }
+                    else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[2] == "lt")
+                    {
+                        filters.Add(
+                            new BsonDocument(
+                                "$elemMatch",
+                                new BsonDocument(
+                                    $"${t.Model.Fields[key.Key.Split("_")[0]].DataName}",
+                                    new BsonDocument("$lt", new BsonArray { $"${st.Model.Fields[key.Key.Split("_")[1]].DataName}", value })
+                                )
+                            )
+                        );
+                        //filters.Add(
+                        //    Builders<BsonDocument>.Filter.ElemMatch(
+                        //        t.Model.Fields[key.Key.Split("_")[0]].DataName,
+                        //        Builders<BsonDocument>.Filter.Lt(
+                        //            st.Model.Fields[key.Key.Split("_")[1]].DataName,
+                        //            value
+                        //        )
+                        //    )
+                        //);
+                    }
+                    else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[2] == "gte")
+                    {
+                        filters.Add(
+                            new BsonDocument(
+                                "$elemMatch",
+                                new BsonDocument(
+                                    $"${t.Model.Fields[key.Key.Split("_")[0]].DataName}",
+                                    new BsonDocument("$gte", new BsonArray { $"${st.Model.Fields[key.Key.Split("_")[1]].DataName}", value })
+                                )
+                            )
+                        );
+                        //filters.Add(
+                        //    Builders<BsonDocument>.Filter.ElemMatch(
+                        //        t.Model.Fields[key.Key.Split("_")[0]].DataName,
+                        //        Builders<BsonDocument>.Filter.Gte(
+                        //            st.Model.Fields[key.Key.Split("_")[1]].DataName,
+                        //            value
+                        //        )
+                        //    )
+                        //);
+                    }
+                    else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[2] == "gt")
+                    {
+                        filters.Add(
+                            new BsonDocument(
+                                "$elemMatch",
+                                new BsonDocument(
+                                    $"${t.Model.Fields[key.Key.Split("_")[0]].DataName}",
+                                    new BsonDocument("$gt", new BsonArray { $"${st.Model.Fields[key.Key.Split("_")[1]].DataName}", value })
+                                )
+                            )
+                        );
+                        //filters.Add(
+                        //    Builders<BsonDocument>.Filter.ElemMatch(
+                        //        t.Model.Fields[key.Key.Split("_")[0]].DataName,
+                        //        Builders<BsonDocument>.Filter.Gt(
+                        //            st.Model.Fields[key.Key.Split("_")[1]].DataName,
+                        //            value
+                        //        )
+                        //    )
+                        //);
+                    }
+                    else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[2] == "in")
+                    {
+                        filters.Add(
+                            new BsonDocument(
+                                "$elemMatch",
+                                new BsonDocument(
+                                    $"${t.Model.Fields[key.Key.Split("_")[0]].DataName}",
+                                    new BsonDocument("$in", new BsonArray { $"${st.Model.Fields[key.Key.Split("_")[1]].DataName}", value })
+                                )
+                            )
+                        );
+                        //filters.Add(
+                        //    Builders<BsonDocument>.Filter.ElemMatch(
+                        //        t.Model.Fields[key.Key.Split("_")[0]].DataName,
+                        //        Builders<BsonDocument>.Filter.In(
+                        //            st.Model.Fields[key.Key.Split("_")[1]].DataName,
+                        //            value
+                        //        )
+                        //    )
+                        //);
+                    }
+                    else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[2] == "notIn")
+                    {
+                        filters.Add(
+                            new BsonDocument(
+                                "$elemMatch",
+                                new BsonDocument(
+                                    $"${t.Model.Fields[key.Key.Split("_")[0]].DataName}",
+                                    new BsonDocument("$nin", new BsonArray { $"${st.Model.Fields[key.Key.Split("_")[1]].DataName}", value })
+                                )
+                            )
+                        );
+                        //filters.Add(
+                        //    Builders<BsonDocument>.Filter.ElemMatch(
+                        //        t.Model.Fields[key.Key.Split("_")[0]].DataName,
+                        //        Builders<BsonDocument>.Filter.Nin(
+                        //            st.Model.Fields[key.Key.Split("_")[1]].DataName,
+                        //            value
+                        //        )
+                        //    )
+                        //);
+                    }
+                    else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[2] == "not")
+                    {
+                        filters.Add(
+                            new BsonDocument(
+                                "$elemMatch",
+                                new BsonDocument(
+                                    $"${t.Model.Fields[key.Key.Split("_")[0]].DataName}",
+                                    new BsonDocument("$ne", new BsonArray { $"${st.Model.Fields[key.Key.Split("_")[1]].DataName}", value })
+                                )
+                            )
+                        );
+                        //filters.Add(
+                        //    Builders<BsonDocument>.Filter.ElemMatch(
+                        //        t.Model.Fields[key.Key.Split("_")[0]].DataName,
+                        //        Builders<BsonDocument>.Filter.Ne(
+                        //            st.Model.Fields[key.Key.Split("_")[1]].DataName,
+                        //            value
+                        //        )
+                        //    )
+                        //);
+                    }
+                    else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[2] == "anyEq")
+                    {
+                        filters.Add(
+                            new BsonDocument(
+                                "$elemMatch",
+                                new BsonDocument(
+                                    $"${t.Model.Fields[key.Key.Split("_")[0]].DataName}",
+                                    new BsonDocument("$anyEq", new BsonArray { $"${st.Model.Fields[key.Key.Split("_")[1]].DataName}", value })
+                                )
+                            )
+                        );
+                        //filters.Add(
+                        //    Builders<BsonDocument>.Filter.ElemMatch(
+                        //        t.Model.Fields[key.Key.Split("_")[0]].DataName,
+                        //        Builders<BsonDocument>.Filter.AnyEq(
+                        //            st.Model.Fields[key.Key.Split("_")[1]].DataName,
+                        //            value
+                        //        )
+                        //    )
+                        //);
+                    }
+                    else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[2] == "anyNe")
+                    {
+                        filters.Add(
+                            new BsonDocument(
+                                "$elemMatch",
+                                new BsonDocument(
+                                    $"${t.Model.Fields[key.Key.Split("_")[0]].DataName}",
+                                    new BsonDocument("$anyNe", new BsonArray { $"${st.Model.Fields[key.Key.Split("_")[1]].DataName}", value })
+                                )
+                            )
+                        );
+                        //filters.Add(
+                        //    Builders<BsonDocument>.Filter.ElemMatch(
+                        //        t.Model.Fields[key.Key.Split("_")[0]].DataName,
+                        //        Builders<BsonDocument>.Filter.AnyNe(
+                        //            st.Model.Fields[key.Key.Split("_")[1]].DataName,
+                        //            value
+                        //        )
+                        //    )
+                        //);
+                    }
+                    else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[2] == "last")
+                    {
+                        BsonDocument filter = new BsonDocument();
+                        filter.Add("$expr", new BsonDocument()
+                            .Add("$eq", new BsonArray()
+                                .Add(new BsonDocument()
+                                    .Add("$arrayElemAt", new BsonArray()
+                                        .Add($"${t.Model.Fields[key.Key.Split("_")[0]].DataName}.{st.Model.Fields[key.Key.Split("_")[1]].DataName}")
+                                        .Add(-1.0)
+                                    )
+                                )
+                                .Add(value)
+                            )
+                        );
+
+                        filters.Add(
+                            filter
+                        );
+                    }
+                    else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[2] == "lastNot")
+                    {
+                        BsonDocument filter = new BsonDocument();
+                        filter.Add("$expr", new BsonDocument()
+                            .Add("$ne", new BsonArray()
+                                .Add(new BsonDocument()
+                                    .Add("$arrayElemAt", new BsonArray()
+                                        .Add($"${t.Model.Fields[key.Key.Split("_")[0]].DataName}.{st.Model.Fields[key.Key.Split("_")[1]].DataName}")
+                                        .Add(-1.0)
+                                    )
+                                )
+                                .Add(value)
+                            )
+                        );
+
+                        filters.Add(
+                            filter
+                        );
+                    }
+                    else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[2] == "first")
+                    {
+                        BsonDocument filter = new BsonDocument();
+                        filter.Add("$expr", new BsonDocument()
+                            .Add("$eq", new BsonArray()
+                                .Add(new BsonDocument()
+                                    .Add("$arrayElemAt", new BsonArray()
+                                        .Add($"${t.Model.Fields[key.Key.Split("_")[0]].DataName}.{st.Model.Fields[key.Key.Split("_")[1]].DataName}")
+                                        .Add(0.0)
+                                    )
+                                )
+                                .Add(value)
+                            )
+                        );
+
+                        filters.Add(
+                            filter
+                        );
+                    }
+                    else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[2] == "firstNot")
+                    {
+                        BsonDocument filter = new BsonDocument();
+                        filter.Add("$expr", new BsonDocument()
+                            .Add("$ne", new BsonArray()
+                                .Add(new BsonDocument()
+                                    .Add("$arrayElemAt", new BsonArray()
+                                        .Add($"${t.Model.Fields[key.Key.Split("_")[0]].DataName}.{st.Model.Fields[key.Key.Split("_")[1]].DataName}")
+                                        .Add(0.0)
+                                    )
+                                )
+                                .Add(value)
+                            )
+                        );
+
+                        filters.Add(
+                            filter
+                        );
+                    }
+                    else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[2] == "atIndex")
+                    {
+                        BsonDocument filter = new BsonDocument();
+                        filter.Add("$expr", new BsonDocument()
+                            .Add("$eq", new BsonArray()
+                                .Add(new BsonDocument()
+                                    .Add("$arrayElemAt", new BsonArray()
+                                        .Add($"${t.Model.Fields[key.Key.Split("_")[0]].DataName}.{st.Model.Fields[key.Key.Split("_")[1]].DataName}")
+                                        .Add(value["index"])
+                                    )
+                                )
+                                .Add(value["value"])
+                            )
+                        );
+
+                        filters.Add(
+                            filter
+                        );
+                    }
+                    else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[2] == "atIndexNot")
+                    {
+                        BsonDocument filter = new BsonDocument();
+                        filter.Add("$expr", new BsonDocument()
+                            .Add("$ne", new BsonArray()
+                                .Add(new BsonDocument()
+                                    .Add("$arrayElemAt", new BsonArray()
+                                        .Add($"${t.Model.Fields[key.Key.Split("_")[0]].DataName}.{st.Model.Fields[key.Key.Split("_")[1]].DataName}")
+                                        .Add(value["index"])
+                                    )
+                                )
+                                .Add(value["value"])
+                            )
+                        );
+
+                        filters.Add(
+                            filter
+                        );
+                    }
+                    else
+                    {
+                        //filters.Add(
+                        //    Builders<BsonDocument>.Filter.ElemMatch(
+                        //        t.Model.Fields[key.Key.Split("_")[0]].DataName,
+                        //        Builders<BsonDocument>.Filter.Eq(
+                        //            st.Model.Fields[key.Key.Split("_")[1]].DataName,
+                        //            value
+                        //        )
+                        //    )
+                        //);
+                    }
+                }
+                else if (value != null)
+                {
+                    filters.Add(new BsonDocument("$eq", new BsonArray { $"${t.Model.Fields[key.Key.Split("_")[0]].DataName}", value }));
+                }
+            }
+            //var lookup = new BsonDocument()
+            //        .Add("from", t.Model.Name)
+            //        .Add("let", let)
+            //        .Add("pipeline", new BsonArray {
+            //            new BsonDocument("$match",
+            //                new BsonDocument("$expr", new BsonDocument("$and", filters))
+            //                )
+            //        })
+            //        .Add("as", column.DataName);
+
+            //return new BsonDocument("$lookup", lookup);
+            return new BsonDocument("$expr", new BsonDocument("$and", filters));
         }
         public FilterDefinition<BsonDocument> BuildFilter(Types t, Dictionary<string, dynamic> keys, ref int skip, ref int limit, List<SortDefinition<BsonDocument>> sort, ref bool upsert)
         {
@@ -112,14 +797,35 @@ namespace DataCrush.TypiQL.Models.Mongo
                     {
                         foreach (string field in ((string)value).Split(","))
                         {
-                            sort.Add(Builders<BsonDocument>.Sort.Ascending(t.Model.Fields[field.Trim()].DataName));
+                            List<string> sortField = new List<string>();
+                            Types partType = t;
+                            foreach (string part in field.Split("."))
+                            {
+                                sortField.Add(partType.Model.Fields[part].DataName);
+                                if (partType.Model.Fields[part].ColumnType == "List" || partType.Model.Fields[part].ColumnType == "Object")
+                                {
+                                    partType = _data.typeDict[partType.Model.Fields[part].ColumnType == "Object" ? partType.Model.Fields[part].ColumnGraphType : partType.Model.Fields[part].ColumnGraphType.Split('[', ']')[1]];
+                                }
+                            }
+                            sort.Add(Builders<BsonDocument>.Sort.Ascending(string.Join(".", sortField)));
                         }
                     }
                     else if (key.Key == "_orderBy_desc" && value != null)
                     {
                         foreach (string field in ((string)value).Split(","))
                         {
-                            sort.Add(Builders<BsonDocument>.Sort.Descending(t.Model.Fields[field.Trim()].DataName));
+                            List<string> sortField = new List<string>();
+
+                            Types partType = t;
+                            foreach (string part in field.Split("."))
+                            {
+                                sortField.Add(partType.Model.Fields[part].DataName);
+                                if (partType.Model.Fields[part].ColumnType == "List" || partType.Model.Fields[part].ColumnType == "Object")
+                                {
+                                    partType = _data.typeDict[partType.Model.Fields[part].ColumnType == "Object" ? partType.Model.Fields[part].ColumnGraphType : partType.Model.Fields[part].ColumnGraphType.Split('[', ']')[1]];
+                                }
+                            }
+                            sort.Add(Builders<BsonDocument>.Sort.Descending(string.Join(".", sortField)));
                         }
                     }
                     else if (key.Key == "_upsert" && value != null)
@@ -427,7 +1133,7 @@ namespace DataCrush.TypiQL.Models.Mongo
                             );
                         }
                         else if (key.Key.Split("_").Length > 1 && key.Key.Split("_")[2] == "lastNot")
-                        {                            
+                        {
                             BsonDocument filter = new BsonDocument();
                             filter.Add("$expr", new BsonDocument()
                                 .Add("$ne", new BsonArray()
@@ -546,7 +1252,7 @@ namespace DataCrush.TypiQL.Models.Mongo
             }
             return Builders<BsonDocument>.Filter.And(filters);
         }
-        
+
         public dynamic Result(BsonDocument document)
         {
             if (document == null)
@@ -625,6 +1331,211 @@ namespace DataCrush.TypiQL.Models.Mongo
                 return results;
             }
         }
+
+        public async Task<Dictionary<string, dynamic>> AggregateDocument(string collection, Dictionary<string, dynamic> keys)
+        {
+            Types t = _data.typeDict[collection];
+            var obj = new Dictionary<string, dynamic>();
+            foreach (var parentField in t.Model.Columns)
+            {
+                if (parentField.DataName != "")
+                {
+                    obj.TryAdd(parentField.DataName, $"${parentField.DataName}");
+
+                }
+            }
+
+            List<SortDefinition<BsonDocument>> sort = new List<SortDefinition<BsonDocument>>();
+            int skip = 0;
+            int limit = 0;
+            bool upsert = false;
+            FilterDefinition<BsonDocument> filter = BuildFilter(t, keys, ref skip, ref limit, sort, ref upsert);
+            var stage = _connections[t.Connection]
+                .GetCollection<BsonDocument>(t.Model.Name)
+                .Aggregate()
+                .Match(filter);
+            foreach (var field in t.Model.Columns)
+            {
+                if (field.Arguments.Count() > 0 && field.DataName != "")
+                {
+                    if (field.ColumnType == "Object" || field.ColumnType == "List")
+                    {
+                        var fieldType = _data.typeDict[field.ColumnType == "Object" ? field.ColumnGraphType : field.ColumnGraphType.Split('[', ']')[1]];
+                        if (field.Arguments.Count() > 0 && fieldType.Connection == t.Connection && fieldType.Model.Name != null && fieldType.Model.Name != "")
+                        {
+                            //var let = new BsonDocument();
+                            //var and = new BsonArray();                        
+
+                            var relationshipFilters = _helpers.BuildFilter(t, field.Name, obj);
+                            List<SortDefinition<BsonDocument>> relationshipSort = new List<SortDefinition<BsonDocument>>();
+                            int relationshipSkip = 0;
+                            int relationshipLimit = 0;
+                            BsonDocument let = new BsonDocument();
+                            bool relationshipUpsert = false;
+
+                            BsonDocument relationshipFilterDef = BuildRelationshipFilter(fieldType, field, relationshipFilters, ref let, ref relationshipSkip, ref relationshipLimit, relationshipSort);
+                            var pipeline = new EmptyPipelineDefinition<BsonDocument>().Match(relationshipFilterDef);
+                            if (relationshipSort.Count() > 0)
+                            {
+                                pipeline = pipeline.Sort(Builders<BsonDocument>.Sort.Combine(relationshipSort));
+                            }
+                            if (relationshipLimit > 0)
+                            {
+                                pipeline = pipeline.Skip(relationshipSkip).Limit(relationshipLimit);
+                            }
+                            //stage = stage.AppendStage<BsonDocument>(relationshipFilterDef);
+                            stage = stage.Lookup<BsonDocument>(_connections[fieldType.Connection].GetCollection<BsonDocument>(fieldType.Model.Name), let, pipeline, field.DataName);
+                            if (field.ColumnType == "Object")
+                            {
+                                var set = new BsonDocument("$set", new BsonDocument(field.DataName, new BsonDocument("$arrayElemAt", new BsonArray { $"${field.DataName}", 0 })));
+                                stage = stage.AppendStage<BsonDocument>(set);
+                            }
+                        }
+                    }
+                }
+            }
+            try
+            {
+                if (sort.Count() > 0)
+                {
+                    stage = stage.Sort(Builders<BsonDocument>.Sort.Combine(sort));
+                }
+                if (limit > 0)
+                {
+                    stage = stage.Skip(skip).Limit(limit);
+                }
+                var result = Result(await stage
+                    .FirstOrDefaultAsync());
+                if (result == null)
+                {
+                    return new Dictionary<string, dynamic>();
+                }
+                else
+                {
+                    return result;
+                }
+            }
+            catch (Exception ex)
+            {
+                return new Dictionary<string, dynamic>();
+            }
+        }
+
+        public async Task<List<dynamic>> AggregateDocuments(string collection, Dictionary<string, dynamic> keys)
+        {
+            Types t = _data.typeDict[collection];
+            var obj = new Dictionary<string, dynamic>();
+            foreach (var parentField in t.Model.Columns)
+            {
+                if (parentField.DataName != "")
+                {
+                    obj.TryAdd(parentField.DataName, $"${parentField.DataName}");
+
+                }
+            }
+
+            List<SortDefinition<BsonDocument>> sort = new List<SortDefinition<BsonDocument>>();
+            int skip = 0;
+            int limit = 0;
+            bool upsert = false;
+            FilterDefinition<BsonDocument> filter = BuildFilter(t, keys, ref skip, ref limit, sort, ref upsert);
+            var stage = _connections[t.Connection]
+                .GetCollection<BsonDocument>(t.Model.Name)
+                .Aggregate()
+                .Match(filter);
+            foreach (var field in t.Model.Columns)
+            {
+                if (field.Arguments.Count() > 0 && field.DataName != "")
+                {
+                    if (field.ColumnType == "Object" || field.ColumnType == "List")
+                    {
+                        var fieldType = _data.typeDict[field.ColumnType == "Object" ? field.ColumnGraphType : field.ColumnGraphType.Split('[', ']')[1]];
+                        if (field.Arguments.Count() > 0 && fieldType.Connection == t.Connection && fieldType.Model.Name != null && fieldType.Model.Name != "")
+                        {
+                            //var let = new BsonDocument();
+                            //var and = new BsonArray();                        
+
+                            var relationshipFilters = _helpers.BuildFilter(t, field.Name, obj);
+                            List<SortDefinition<BsonDocument>> relationshipSort = new List<SortDefinition<BsonDocument>>();
+                            int relationshipSkip = 0;
+                            int relationshipLimit = 0;
+                            BsonDocument let = new BsonDocument();
+                            bool relationshipUpsert = false;
+
+                            BsonDocument relationshipFilterDef = BuildRelationshipFilter(fieldType, field, relationshipFilters, ref let, ref relationshipSkip, ref relationshipLimit, relationshipSort);
+                            var pipeline = new EmptyPipelineDefinition<BsonDocument>().Match(relationshipFilterDef);
+                            if (relationshipSort.Count() > 0)
+                            {
+                                pipeline = pipeline.Sort(Builders<BsonDocument>.Sort.Combine(relationshipSort));
+                            }
+                            if (relationshipLimit > 0)
+                            {
+                                pipeline = pipeline.Skip(relationshipSkip).Limit(relationshipLimit);
+                            }
+                            //stage = stage.AppendStage<BsonDocument>(relationshipFilterDef);
+                            stage = stage.Lookup<BsonDocument>(_connections[fieldType.Connection].GetCollection<BsonDocument>(fieldType.Model.Name), let, pipeline, field.DataName);
+                            if (field.ColumnType == "Object")
+                            {
+                                var set = new BsonDocument("$set", new BsonDocument(field.DataName, new BsonDocument("$arrayElemAt", new BsonArray { $"${field.DataName}", 0 })));
+                                stage = stage.AppendStage<BsonDocument>(set);
+                            }
+                        }
+                    }
+                }
+            }
+            try
+            {
+                if (sort.Count() > 0)
+                {
+                    stage = stage.Sort(Builders<BsonDocument>.Sort.Combine(sort));
+                }
+                if (limit > 0)
+                {
+                    stage = stage.Skip(skip).Limit(limit);
+                }
+
+                var results = Results(await stage
+                    .ToListAsync());
+                if (results == null)
+                {
+                    return new List<dynamic>();
+                }
+                else
+                {
+                    return results;
+                }
+            }
+            catch (Exception ex)
+            {
+                return new List<dynamic>();
+            }
+        }
+
+        public async Task<PageInfo> GetDocumentsPageInfo(string collection, Dictionary<string, dynamic> keys)
+        {
+            Types t = _data.typeDict[collection];
+
+            List<SortDefinition<BsonDocument>> sort = new List<SortDefinition<BsonDocument>>();
+            int skip = 0;
+            int limit = 0;
+            bool upsert = false;
+            FilterDefinition<BsonDocument> filter = BuildFilter(t, keys, ref skip, ref limit, sort, ref upsert);
+            var results = Results(await _connections[t.Connection]
+                .GetCollection<BsonDocument>(t.Model.Name)
+                .Find(filter)
+                .Sort(Builders<BsonDocument>.Sort.Combine(sort))
+                .Skip(skip)
+                .Limit(limit)
+                .ToListAsync());
+            long count = await _connections[t.Connection].GetCollection<BsonDocument>(t.Model.Name).CountDocumentsAsync(filter);
+            return new PageInfo
+            {
+                TotalResults = (int)count,
+                Page = limit > 0 ? skip / limit + 1 : 1,
+                TotalPages = (int)Math.Ceiling((double)count / limit) > 0 ? (int)Math.Ceiling((double)count / limit) : 1
+            };
+        }
+
         public async Task<Dictionary<string, dynamic>> BatchDocument(string type, IEnumerable<string> keySets, Types parentType, string parentField)
         {
             Types t = _data.typeDict[type];
@@ -656,7 +1567,7 @@ namespace DataCrush.TypiQL.Models.Mongo
                 filtersFromResults.Add(json, null);
             }
 
-            
+
             var results = ResultsAsDicts(await _connections[t.Connection]
                 .GetCollection<BsonDocument>(t.Model.Name)
                 .Find(Builders<BsonDocument>.Filter.Or(filters))
@@ -821,7 +1732,7 @@ namespace DataCrush.TypiQL.Models.Mongo
                 else
                 {
                     valuesCorrected.Add(t.Model.Fields[kv.Key].DataName, kv.Value);
-                }                
+                }
             }
             if (valuesCorrected.ContainsKey("type") && valuesCorrected["type"] == "image" && valuesCorrected.ContainsKey("file"))
             {
@@ -860,7 +1771,7 @@ namespace DataCrush.TypiQL.Models.Mongo
                 .Limit(limit)
                 .FirstOrDefaultAsync()));
         }
-        public async Task<List<dynamic>> UpdateDocuments(string collection, Dictionary<string,dynamic> keys, Dictionary<string,dynamic> update)
+        public async Task<List<dynamic>> UpdateDocuments(string collection, Dictionary<string, dynamic> keys, Dictionary<string, dynamic> update)
         {
             Types t = _data.typeDict[collection];
 
@@ -904,19 +1815,19 @@ namespace DataCrush.TypiQL.Models.Mongo
             }
             UpdateDefinition<BsonDocument> updates = Builders<BsonDocument>.Update.Combine(updateSet.ToArray());
             await _connections[t.Connection].GetCollection<BsonDocument>(t.Model.Name).UpdateManyAsync(filter, updates, new UpdateOptions { IsUpsert = upsert });
-            return _data._subscriptionRepos[t.Name].ChangeEntity(t, "UpdateMany", await GetDocuments(collection, keys)); 
+            return _data._subscriptionRepos[t.Name].ChangeEntity(t, "UpdateMany", await GetDocuments(collection, keys));
         }
         public async Task<Dictionary<string, dynamic>> AddDocument(string collection, Dictionary<string, dynamic> values)
         {
             Types t = _data.typeDict[collection];
             ObjectId id = ObjectId.GenerateNewId();
             var valuesCorrected = new Dictionary<string, dynamic>();
-            foreach(KeyValuePair<string, dynamic> kv in values)
+            foreach (KeyValuePair<string, dynamic> kv in values)
             {
                 if (!(t.Model.Fields[kv.Key].DataName == null || t.Model.Fields[kv.Key].DataName == ""))
                 {
                     valuesCorrected.Add(t.Model.Fields[kv.Key].DataName, kv.Value);
-                }                
+                }
             }
             if (valuesCorrected.ContainsKey("type") && valuesCorrected["type"] == "image" && valuesCorrected.ContainsKey("fileId"))
             {
@@ -937,7 +1848,7 @@ namespace DataCrush.TypiQL.Models.Mongo
                 }
             }
             BsonDocument bsonValues = BsonTypeMapper.MapToBsonValue(valuesCorrected) as BsonDocument;// BsonDocument.Parse(JsonConvert.SerializeObject(valuesCorrected));
-            bsonValues.Add("_id", id);            
+            bsonValues.Add("_id", id);
             await _connections[t.Connection].GetCollection<BsonDocument>(t.Model.Name).InsertOneAsync(bsonValues);
             return _data._subscriptionRepos[t.Name].ChangeEntity(t, "Add", Result(await _connections[t.Connection]
                 .GetCollection<BsonDocument>(t.Model.Name)
@@ -997,7 +1908,7 @@ namespace DataCrush.TypiQL.Models.Mongo
             int limit = 0;
             bool upsert = false;
             FilterDefinition<BsonDocument> filter = BuildFilter(t, keys, ref skip, ref limit, sort, ref upsert);
-            
+
             Dictionary<string, dynamic> document = Result(await _connections[t.Connection]
                 .GetCollection<BsonDocument>(t.Model.Name)
                 .Find(filter)
@@ -1038,7 +1949,7 @@ namespace DataCrush.TypiQL.Models.Mongo
             await _connections[t.Connection].GetCollection<BsonDocument>(t.Model.Name).DeleteManyAsync(filter);
             return _data._subscriptionRepos[t.Name].ChangeEntity(t, "RemoveMany", documents);
         }
-        public async Task<Dictionary<string,dynamic>> UploadFile(Types type, Dictionary<string, dynamic> values)
+        public async Task<Dictionary<string, dynamic>> UploadFile(Types type, Dictionary<string, dynamic> values)
         {
             ObjectId Id = await _buckets[type.Connection].UploadFromBytesAsync(values["filename"], Convert.FromBase64String(values["fileId"]));
             byte[] bytes = Convert.FromBase64String(values["fileId"]);
@@ -1054,7 +1965,7 @@ namespace DataCrush.TypiQL.Models.Mongo
             {
                 return "";
             }
-            byte[] bytes = await _buckets[t.Connection].DownloadAsBytesAsync(new ObjectId(id));            
+            byte[] bytes = await _buckets[t.Connection].DownloadAsBytesAsync(new ObjectId(id));
             return Convert.ToBase64String(bytes);
         }
         public async Task<bool> DeleteFile(Types type, string id)

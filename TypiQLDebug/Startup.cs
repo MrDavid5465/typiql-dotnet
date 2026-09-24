@@ -50,7 +50,8 @@ namespace TypiQLDebug
                 TypiQLConnectionString = Configuration.GetSection("TypiQLConfig:ConnectionString").Value,
                 TypiQLDatabase = Configuration.GetSection("TypiQLConfig:ConfigDatabase").Value,
                 TypiQLAdminRole = Configuration.GetSection("TypiQLConfig:AdminRole").Value,
-                UserNameProperty = Configuration.GetSection("TypiQLConfig:UserNameProperty").Value
+                UserNameProperty = Configuration.GetSection("TypiQLConfig:UserNameProperty").Value,
+                AuthenticationType = Configuration.GetSection("Authentication:Type").Value
             };
             settings.GetRoles();
 
@@ -64,6 +65,7 @@ namespace TypiQLDebug
                 options.TypiQLAdminRole = settings.TypiQLAdminRole;
                 options.UserNameProperty = settings.UserNameProperty;
                 options.Roles = settings.Roles;
+                options.AuthenticationType = settings.AuthenticationType;
             });
             var key = Encoding.ASCII.GetBytes(Configuration.GetSection("Authentication:Secret").Value);
             services.AddAuthentication(x =>
@@ -82,8 +84,8 @@ namespace TypiQLDebug
                     ValidateIssuer = true,
                     ValidateAudience = true,
                     ValidateLifetime = true,
-                    ValidAudience = "data-crush.com",
-                    ValidIssuer = "data-crush.com",
+                    ValidAudience = "davidallanscott.ca",
+                    ValidIssuer = "davidallanscott.ca",
                 };
                 x.Events = new JwtBearerEvents
                 {

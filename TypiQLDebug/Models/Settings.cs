@@ -17,6 +17,7 @@ namespace TypiQLDebug.Models
         public string TypiQLAdminRole { get; set; }
         public List<CustomResolver> Resolvers { get; set; }
         public string UserNameProperty { get; set; }
+        public string AuthenticationType { get; set; }
         public List<TypiQLRole> Roles { get; set; }
         public void GetRoles()
         {

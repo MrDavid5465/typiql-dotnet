@@ -8,6 +8,7 @@ using System.Drawing.Imaging;
 using System.IO;
 using System.Security.Principal;
 using Microsoft.AspNetCore.Http.Extensions;
+using TypiQL.Models;
 
 namespace DataCrush.TypiQL.Models.AD
 {
@@ -239,6 +240,29 @@ namespace DataCrush.TypiQL.Models.AD
             }
             var result = users.Skip(start).Take(limit).ToList();
             return result;
+        }
+        public PageInfo GetADObjectsPageInfo(string type, Dictionary<string, dynamic> keys)
+        {
+            throw new NotImplementedException();
+            DirectorySearcher searcher = createDirectorySearcher(_data.typeDict[type]);
+
+            int limit = 1000;
+            int start = 0;
+            string sort = "";
+
+            searcher.Filter = BuildFilter(type, ref sort, ref limit, ref start, keys);
+            searcher.Sort = new SortOption(sort, (keys.ContainsKey("_orderBy_desc") && keys["_orderBy_desc"] != null ? SortDirection.Descending : SortDirection.Ascending));
+            if (searcher.Filter == "(objectClass=*)")
+            {
+                return new PageInfo();
+            }
+            List<dynamic> users = new List<dynamic>();
+            foreach (SearchResult s in searcher.FindAll())
+            {
+                users.Add(ResolveSearchResult(s, _data.typeDict[type]));
+            }
+            var result = users.Skip(start).Take(limit).ToList();
+            return new PageInfo();
         }
         public Dictionary<string, dynamic> GetADObject(string type, Dictionary<string, dynamic> keys)
         {

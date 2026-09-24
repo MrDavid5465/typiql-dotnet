@@ -11,6 +11,7 @@ using LinqKit;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using Newtonsoft.Json;
+using TypiQL.Models;
 
 namespace DataCrush.TypiQL.Models.Sql
 {
@@ -30,7 +31,7 @@ namespace DataCrush.TypiQL.Models.Sql
             }
             _helpers = helpers;
         }
-        public string BuildQuery(IResolveFieldContext context, Types t, Dictionary<string, dynamic> keys, ref Dictionary<string, dynamic> values, string query = "")
+        public string BuildQuery(IResolveFieldContext context, Types t, Dictionary<string, dynamic> keys, ref Dictionary<string, dynamic> values, ref int skip, ref int limit, string query = "")
         {
             Model model = t.Model;
             var parameters = new List<string>();
@@ -490,7 +491,9 @@ namespace DataCrush.TypiQL.Models.Sql
         {
             Types t = _data.typeDict[type];
             Dictionary<string, dynamic> values = new Dictionary<string, dynamic>();
-            string query = BuildQuery(context, t, keys,  ref values);
+            int skip = 0;
+            int limit = 0;
+            string query = BuildQuery(context, t, keys, ref values, ref skip, ref limit);
             using (SqlConnection connection = new SqlConnection(_connections[t.Connection].ConnectionString))
             {
                 var result = await connection.QueryFirstOrDefaultAsync(query, values);
@@ -501,7 +504,9 @@ namespace DataCrush.TypiQL.Models.Sql
         {
             Types t = _data.typeDict[type];
             Dictionary<string, dynamic> values = new Dictionary<string, dynamic>();
-            string query = BuildQuery(context, t, keys, ref values);
+            int skip = 0;
+            int limit = 0;
+            string query = BuildQuery(context, t, keys, ref values, ref skip, ref limit);
             using (SqlConnection connection = new SqlConnection(_connections[t.Connection].ConnectionString))
             {
                 var result = new List<dynamic>();
@@ -512,11 +517,32 @@ namespace DataCrush.TypiQL.Models.Sql
                 return result;
             }
         }
+        public async Task<PageInfo> GetRecordsPageInfo(IResolveFieldContext context, string type, Dictionary<string, dynamic> keys)
+        {
+            Types t = _data.typeDict[type];
+            Dictionary<string, dynamic> values = new Dictionary<string, dynamic>();
+            int skip = 0;
+            int limit = 0;
+            string query = BuildQuery(context, t, keys, ref values, ref skip, ref limit, $"SELECT COUNT({t.Model.Fields[t.Model.Key[0]].DataName}) AS totalResults FROM {t.Model.Name}");
+            using (SqlConnection connection = new SqlConnection(_connections[t.Connection].ConnectionString))
+            {
+                var result = await connection.QueryAsync(query, values);
+                long count = ((List<IDictionary<string, dynamic>>)result)[0]["totalResults"];
+                return new PageInfo
+                {
+                    TotalResults = (int)count,
+                    Page = limit > 0 ? skip / limit + 1 : 1,
+                    TotalPages = (int)Math.Ceiling((double)count / limit) > 0 ? (int)Math.Ceiling((double)count / limit) : 1
+                };
+            }
+        }
         public async Task<dynamic> CountRecords(IResolveFieldContext context, string type, Dictionary<string, dynamic> keys)
         {
             Types t = _data.typeDict[type];
             Dictionary<string, dynamic> values = new Dictionary<string,dynamic>();
-            string query = BuildQuery(null, t, keys, ref values, $"SELECT COUNT({t.Model.Fields[t.Model.Key[0]].DataName}) AS {t.Name}Count FROM {t.Model.Name}");
+            int skip = 0;
+            int limit = 0;
+            string query = BuildQuery(null, t, keys, ref values, ref skip, ref limit, $"SELECT COUNT({t.Model.Fields[t.Model.Key[0]].DataName}) AS {t.Name}Count FROM {t.Model.Name}");
             using (SqlConnection connection = new SqlConnection(_connections[t.Connection].ConnectionString))
             {
                 var result = 0;
@@ -528,7 +554,9 @@ namespace DataCrush.TypiQL.Models.Sql
         {
             Types t = _data.typeDict[type];
             Dictionary<string, dynamic> values = new Dictionary<string, dynamic>();
-            string query = BuildQuery(null, t, keys, ref values, $"SELECT SUM({t.Model.Fields[t.Model.Key[0]].DataName}) FROM {t.Model.Name}");
+            int skip = 0;
+            int limit = 0;
+            string query = BuildQuery(null, t, keys, ref values, ref skip, ref limit, $"SELECT SUM({t.Model.Fields[t.Model.Key[0]].DataName}) FROM {t.Model.Name}");
             using (SqlConnection connection = new SqlConnection(_connections[t.Connection].ConnectionString))
             {
                 var result = 0;
@@ -540,7 +568,9 @@ namespace DataCrush.TypiQL.Models.Sql
         {
             Types t = _data.typeDict[type];
             Dictionary<string, dynamic> values = new Dictionary<string, dynamic>();
-            string query = BuildQuery(null, t, keys, ref values, $"SELECT AVERAGE({t.Model.Fields[t.Model.Key[0]].DataName}) FROM {t.Model.Name}");
+            int skip = 0;
+            int limit = 0;
+            string query = BuildQuery(null, t, keys, ref values, ref skip, ref limit, $"SELECT AVERAGE({t.Model.Fields[t.Model.Key[0]].DataName}) FROM {t.Model.Name}");
             using (SqlConnection connection = new SqlConnection(_connections[t.Connection].ConnectionString))
             {
                 var result = 0;
@@ -552,7 +582,9 @@ namespace DataCrush.TypiQL.Models.Sql
         {
             Types t = _data.typeDict[type];
             Dictionary<string, dynamic> values = new Dictionary<string, dynamic>();
-            string query = BuildQuery(null, t, keys, ref values, $"SELECT AVERAGE({t.Model.Fields[t.Model.Key[0]].DataName}) FROM {t.Model.Name}");
+            int skip = 0;
+            int limit = 0;
+            string query = BuildQuery(null, t, keys, ref values, ref skip, ref limit, $"SELECT AVERAGE({t.Model.Fields[t.Model.Key[0]].DataName}) FROM {t.Model.Name}");
             using (SqlConnection connection = new SqlConnection(_connections[t.Connection].ConnectionString))
             {
                 var result = 0;
@@ -564,7 +596,9 @@ namespace DataCrush.TypiQL.Models.Sql
         {
             Types t = _data.typeDict[type];
             Dictionary<string, dynamic> values = new Dictionary<string, dynamic>();
-            string query = BuildQuery(null, t, keys, ref values, $"SELECT AVERAGE({t.Model.Fields[t.Model.Key[0]].DataName}) FROM {t.Model.Name}");
+            int skip = 0;
+            int limit = 0;
+            string query = BuildQuery(null, t, keys, ref values, ref skip, ref limit, $"SELECT AVERAGE({t.Model.Fields[t.Model.Key[0]].DataName}) FROM {t.Model.Name}");
             using (SqlConnection connection = new SqlConnection(_connections[t.Connection].ConnectionString))
             {
                 var result = 0;
@@ -602,13 +636,15 @@ namespace DataCrush.TypiQL.Models.Sql
                 queryValues.Add($"value{kv.Key}", kv.Value);
             }
             string query = $"UPDATE [dbo].[{t.Model.Name}] SET {string.Join(",", columns)} FROM [dbo].[{t.Model.Name}]";
-            query = BuildQuery(null, t, filter, ref queryValues, query);
+            int skip = 0;
+            int limit = 0;
+            query = BuildQuery(null, t, filter, ref queryValues, ref skip, ref limit, query);
             using (SqlConnection connection = new SqlConnection(_connections[t.Connection].ConnectionString))
             {
                 await connection.QueryAsync(query, queryValues);
             }
             queryValues = new Dictionary<string, dynamic>();
-            query = BuildQuery(context, t, filter, ref queryValues);
+            query = BuildQuery(context, t, filter, ref queryValues, ref skip, ref limit);
             using (SqlConnection connection = new SqlConnection(_connections[t.Connection].ConnectionString))
             {
                 return _data._subscriptionRepos[t.Name].ChangeEntity(t, "Update", new Dictionary<string, dynamic>(await connection.QueryFirstOrDefaultAsync(query, queryValues)));
@@ -620,7 +656,9 @@ namespace DataCrush.TypiQL.Models.Sql
             Dictionary<string, dynamic> values = await GetRecord(context, type, filter);
             Dictionary<string, dynamic> queryValues = new Dictionary<string, dynamic>();
             string query = $"DELETE TOP (1) FROM [dbo].[{t.Model.Name}]";
-            query = BuildQuery(context, t, filter, ref queryValues, query);
+            int skip = 0;
+            int limit = 0;
+            query = BuildQuery(context, t, filter, ref queryValues, ref skip, ref limit, query);
             using (SqlConnection connection = new SqlConnection(_connections[t.Connection].ConnectionString))
             {
                 await connection.QueryAsync(query, queryValues);

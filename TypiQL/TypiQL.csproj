@@ -4,14 +4,18 @@
     <TargetFramework>net10.0</TargetFramework>
     <!-- COMPUTERNAME is Windows-only; USER is its rough Linux/macOS equivalent.
          Without a fallback, an unset COMPUTERNAME produced the malformed
-         version "0.0.0-" (empty pre-release label) on non-Windows, which
+         version "99.0.0-" (empty pre-release label) on non-Windows, which
          made NuGet's restore task fail with no logged error at all. -->
     <BuildMachineName Condition=" '$(COMPUTERNAME)' != '' ">$(COMPUTERNAME)</BuildMachineName>
     <BuildMachineName Condition=" '$(BuildMachineName)' == '' AND '$(USER)' != '' ">$(USER)</BuildMachineName>
     <BuildMachineName Condition=" '$(BuildMachineName)' == '' ">local</BuildMachineName>
-    <Version Condition=" '$(Version)' == '' ">0.0.0-$(BuildMachineName)</Version>
+    <Version Condition=" '$(Version)' == '' ">99.0.0-$(BuildMachineName)</Version>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="Publish.ps1" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Dapper" Version="2.0.123" />

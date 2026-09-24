@@ -25,7 +25,7 @@ namespace DataCrush.TypiQL.Models
 {
     public class BaseSchema : Schema
     {
-        public BaseSchema(IServiceProvider provider, Queries queries, Mutations mutations, Subscriptions subscriptions) : base(provider) 
+        public BaseSchema(IServiceProvider provider, Queries queries, Mutations mutations, Subscriptions subscriptions) : base(provider)
         {
             Query = queries;
             Mutation = mutations;
@@ -56,7 +56,7 @@ namespace DataCrush.TypiQL.Models
 
         public OrgSchema(
             IServiceProvider provider,
-            IHttpContextAccessor accessor,            
+            IHttpContextAccessor accessor,
             ConfigData data,
             TypiQLSettings settings,
             IHostApplicationLifetime lifetime
@@ -68,7 +68,7 @@ namespace DataCrush.TypiQL.Models
             _mongoContext = new TypiQLMongoContext(settings);
             _helpers = provider.GetRequiredService<SchemaHelpers>();
             _helpers.Configure(provider.GetRequiredService<MongoData>(), provider.GetRequiredService<SqlData>(), provider.GetRequiredService<ADData>());
-            
+
             foreach (CustomResolver cr in _settings.Resolvers)
             {
                 cr.GetFieldResolver();
@@ -122,7 +122,7 @@ namespace DataCrush.TypiQL.Models
                     DateTime = DateTime.UtcNow,
                     Details = new Dictionary<string, dynamic>
                         {
-                            { "user", _httpContext.HttpContext.User.Identity.Name },
+                            { "user", _data.GetUserName() },
                             { "operation", query.ColumnType },
                             { "type", context.FieldDefinition.ResolvedType.Name },
                             { context.ParentType.Name, context.FieldAst.Name },
@@ -133,12 +133,12 @@ namespace DataCrush.TypiQL.Models
                 if (_settings.Logger != null)
                 {
                     _settings.Logger.Invoke(log);
-                }                    
+                }
                 else
                 {
                     LoggingContext _ = _data.AddLog(log).Result;
                 }
-                    
+
             }
             return result;
         }
@@ -146,6 +146,7 @@ namespace DataCrush.TypiQL.Models
         {
             ReloadTypeDict();
             ISchema userSchema = BuildSchemaFromSDL(_types);
+            RegisterType(new PageInfoType());
             foreach (ObjectGraphType type in userSchema.AllTypes.Where(t => t is ObjectGraphType))
             {
                 if (_typeDict.ContainsKey(type.Name))
@@ -174,32 +175,50 @@ namespace DataCrush.TypiQL.Models
                             obj = new Dictionary<string, dynamic>(obj);
                             if (resolvedTypeInfo.TypeStack.Contains("array")
                                 && _typeDict.ContainsKey(resolvedTypeInfo.Name)
-                                && thisColumn.Arguments.Count > 0)
+                                && thisColumn.Arguments.Count > 0 && thisColumn.DataName == "")
                             {
-                                var loader = _helpers.BatchMany(
-                                    _typeDict[resolvedTypeInfo.Name],
-                                    $"Get{resolvedTypeInfo.Name}By{thisType.Name}{string.Join("-", thisColumn.Arguments.Select(a => a.Key).ToArray())}",
-                                    thisType,
-                                    field.Name
-                                    );
+                                if (_typeDict[resolvedTypeInfo.Name].Type == "ad")
+                                {
 
-                                var json = JsonConvert.SerializeObject(_helpers.BuildFilter(thisType, field.Name, obj as Dictionary<string, dynamic>));
-                                return Log(thisColumn, context, loader.LoadAsync(json));
+                                    Dictionary<string, dynamic> filter = _helpers.BuildFilter(thisType, field.Name, obj as Dictionary<string, dynamic>);
+                                    return Log(thisColumn, context, _helpers.GetMany(context, _typeDict[resolvedTypeInfo.Name], filter));
+                                }
+                                else
+                                {
+                                    var loader = _helpers.BatchMany(
+                                        _typeDict[resolvedTypeInfo.Name],
+                                        $"Get{resolvedTypeInfo.Name}By{thisType.Name}{string.Join("-", thisColumn.Arguments.Select(a => a.Key).ToArray())}",
+                                        thisType,
+                                        field.Name
+                                        );
+
+                                    var json = JsonConvert.SerializeObject(_helpers.BuildFilter(thisType, field.Name, obj as Dictionary<string, dynamic>));
+                                    return Log(thisColumn, context, loader.LoadAsync(json));
+                                }
+
                             }
                             else if (!resolvedTypeInfo.TypeStack.Contains("array")
                                 && _typeDict.ContainsKey(resolvedTypeInfo.Name)
-                                && thisColumn.Arguments.Count > 0)
+                                && thisColumn.Arguments.Count > 0 && thisColumn.DataName == "")
                             {
-                                var loader = _helpers.BatchOne(
+                                if (_typeDict[resolvedTypeInfo.Name].Type == "ad")
+                                {
+                                    Dictionary<string, dynamic> filter = _helpers.BuildFilter(thisType, field.Name, obj as Dictionary<string, dynamic>);
+                                    return Log(thisColumn, context, _helpers.GetOne(context, _typeDict[resolvedTypeInfo.Name], filter));
+                                }
+                                else
+                                {
+                                    var loader = _helpers.BatchOne(
                                     _typeDict[resolvedTypeInfo.Name],
                                     $"Get{resolvedTypeInfo.Name}By{thisType.Name}{string.Join("-", thisColumn.Arguments.Select(a => a.Key).ToArray())}",
                                     thisType,
                                     field.Name
                                     );
-                                var json = JsonConvert.SerializeObject(_helpers.BuildFilter(thisType, field.Name, obj as Dictionary<string, dynamic>));
-                                return Log(thisColumn, context, loader.LoadAsync(json));
+                                    var json = JsonConvert.SerializeObject(_helpers.BuildFilter(thisType, field.Name, obj as Dictionary<string, dynamic>));
+                                    return Log(thisColumn, context, loader.LoadAsync(json));
+                                }
                             }
-                            else if (!obj.ContainsKey(thisColumn.DataName))
+                            else if (thisColumn.DataName != "" && !obj.ContainsKey(thisColumn.DataName))
                             {
                                 Log(thisColumn, context, $"{thisColumn.DataName} not found in parent");
                                 return null;
@@ -375,6 +394,27 @@ namespace DataCrush.TypiQL.Models
                     });
                 }
                 Query.AddField(query);
+                if (thisQuery.Type == "List")
+                {
+                    FieldType pagedQuery = new FieldType();
+                    pagedQuery.Name = $"{query.Name}PageInfo";
+                    pagedQuery.Arguments = query.Arguments;
+                    pagedQuery.Type = typeof(PageInfoType);
+                    pagedQuery.Description = $"Page Information for a paged result from Query: {query.Name}";
+                    // Typed explicitly: Log(...) returns dynamic, which makes the
+                    // lambda ambiguous between GraphQL 7's sync and ValueTask overloads.
+                    pagedQuery.Resolver = new FuncFieldResolver<PageInfo>((Func<IResolveFieldContext, PageInfo>)(context =>
+                    {
+                        if (!Allowed(query.ResolvedType.GetNamedType().Name, query.Name, "query", true))
+                        {
+                            Log(thisQuery, context, "Access Denied");
+                            throw new UnauthorizedAccessException();
+                        }
+                        Dictionary<string, dynamic> filter = _helpers.BuildQueryFilter(thisType, thisQuery.Arguments, query, context);
+                        return Log(thisQuery, context, _helpers.GetManyPageInfo(context, thisType, filter));
+                    }));
+                    Query.AddField(pagedQuery);
+                }
 
             }
             foreach (FieldType mutation in userSchema.Mutation.Fields)
@@ -458,7 +498,7 @@ namespace DataCrush.TypiQL.Models
             }
 
         }
-        
+
         public ISchema BuildSchemaFromSDL(List<Types> types)
         {
             List<string> typeSchema = new List<string>();
@@ -506,7 +546,7 @@ namespace DataCrush.TypiQL.Models
             }
             return allowed;
         }
-        
+
         public List<QueryArgument> FilterArgs(Types type, FieldType query, Query thisQuery, ISchema schema)
         {
             //TODO ADD DESCRIPTIONS TO ALL THESE HERE ARGUMENTS

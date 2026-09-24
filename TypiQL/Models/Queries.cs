@@ -214,7 +214,7 @@ namespace DataCrush.TypiQL.Models
                     return data.ListBucket(context.GetArgument<string>("name"), context.GetArgument<string>("type"), data.GetUserName());
                 }
             ).AuthorizeWithRoles(_settings.TypiQLAdminRole);
-            Field<ListGraphType<TypiQLRoleType>>(
+            Field<ListGraphType<ADGroupType>>(
                 "getGroups",
                 resolve: context =>
                 {
@@ -259,10 +259,20 @@ namespace DataCrush.TypiQL.Models
                 "getTypiQLClient",
                 resolve: context =>
                 {
-                    return new Dictionary<string, dynamic> {
-                    { "computerName", Dns.GetHostEntry(httpContext.HttpContext.Connection.RemoteIpAddress).HostName },
-                    { "ip", httpContext.HttpContext.Connection.RemoteIpAddress.ToString() }
-                    };
+                    try
+                    {
+                        return new Dictionary<string, dynamic> {
+                            { "computerName",Dns.GetHostEntry(httpContext.HttpContext.Connection.RemoteIpAddress)?.HostName},
+                            { "ip", httpContext.HttpContext.Connection.RemoteIpAddress.ToString() }
+                        };
+                    }
+                    catch
+                    {
+                        return new Dictionary<string, dynamic> {
+                            { "computerName", "Computer not found in DNS records"},
+                            { "ip", httpContext.HttpContext.Connection.RemoteIpAddress.ToString() }
+                        };
+                    }
                 }
             );
             //Field<FileUploadType>(
