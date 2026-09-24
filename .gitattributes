@@ -1,0 +1,3 @@
+# Store text files with LF in the repo; checkouts use the platform default.
+# (A CRLF round-trip once rewrote 61 files wholesale.)
+* text=auto
